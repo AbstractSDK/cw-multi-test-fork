@@ -1,11 +1,14 @@
 use cosmwasm_std::{
-    coin, from_json, testing::MockApi, to_json_binary, AllBalanceResponse, BankQuery, CosmosMsg,
-    Empty, IbcMsg, IbcOrder, IbcTimeout, IbcTimeoutBlock, Querier, QueryRequest,
+    coin, from_json, testing::MockApi, to_json_binary, AllBalanceResponse, BankQuery, Binary,
+    CosmosMsg, Empty, IbcMsg, IbcOrder, IbcTimeout, IbcTimeoutBlock, Querier, QueryRequest,
 };
 
 use cw_multi_test::{
     ibc::{
-        relayer::{create_channel, create_connection, relay_packets_in_tx, ChannelCreationResult},
+        relayer::{
+            create_channel, create_connection, relay_packets_in_tx, ChannelCreationResult,
+            RelayingResult,
+        },
         IbcSimpleModule,
     },
     AppBuilder, Executor,
@@ -74,7 +77,15 @@ fn simple_transfer() -> anyhow::Result<()> {
     )?;
 
     // We relaying all packets found in the transaction
-    relay_packets_in_tx(&mut app1, &mut app2, send_response)?;
+    let result = relay_packets_in_tx(&mut app1, &mut app2, send_response)?;
+    let ics20_ack = result.iter().any(|packet| {
+        if let RelayingResult::Acknowledgement { ack, .. } = &packet.result {
+            ack.eq(&Binary::new("{\"result\": \"AQ==\"}".as_bytes().to_vec()))
+        } else {
+            false
+        }
+    });
+    assert!(ics20_ack);
 
     // We make sure the balance of the reciepient has changed
     let balances = app2
