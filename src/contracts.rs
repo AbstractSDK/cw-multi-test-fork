@@ -395,8 +395,8 @@ where
 pub mod test {
 
     use cosmwasm_std::{
-        testing::{mock_dependencies, mock_env, mock_info},
-        to_json_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Response, StdResult,
+        testing::{message_info, mock_dependencies, mock_env},
+        to_json_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Response, StdResult,
     };
 
     use super::ContractWrapper;
@@ -428,14 +428,14 @@ pub mod test {
         clone(
             mock_dependencies().as_mut(),
             mock_env(),
-            mock_info("sender", &[]),
+            message_info(&Addr::unchecked("sender"), &[]),
             Empty {},
         )?;
 
         second_clone(
             mock_dependencies().as_mut(),
             mock_env(),
-            mock_info("sender", &[]),
+            message_info(&Addr::unchecked("sender"), &[]),
             Empty {},
         )?;
 

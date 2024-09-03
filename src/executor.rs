@@ -53,6 +53,7 @@ impl AppResponse {
 impl From<SubMsgResponse> for AppResponse {
     fn from(reply: SubMsgResponse) -> Self {
         AppResponse {
+            #[allow(deprecated)]
             data: reply.data,
             events: reply.events,
         }

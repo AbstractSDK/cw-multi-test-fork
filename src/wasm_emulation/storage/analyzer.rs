@@ -146,10 +146,10 @@ impl StorageAnalyzer {
             .into_iter()
             .for_each(|(contract_addr, key, value)| {
                 // We look for the data at that key on the contract
-                let distant_data = self
-                    .remote
-                    .rt
-                    .block_on(wasm_querier._contract_raw_state(contract_addr.clone(), key.clone()));
+                let distant_data = self.remote.rt.block_on(
+                    wasm_querier
+                        ._contract_raw_state(&Addr::unchecked(contract_addr.clone()), key.clone()),
+                );
 
                 if let Ok(data) = distant_data {
                     let local_json: Json =
@@ -234,7 +234,7 @@ impl StorageAnalyzer {
             .into_iter()
             .for_each(|(addr, balances)| {
                 // We look for the data at that key on the contract
-                let distant_data = bank_querier.balance(addr.clone(), None);
+                let distant_data = bank_querier.balance(&addr, None);
 
                 if let Ok(distant_coins) = distant_data {
                     let distant_coins = serde_json::to_string(&distant_coins).unwrap();
