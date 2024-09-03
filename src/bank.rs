@@ -11,7 +11,6 @@ use cosmwasm_std::{
     coin, to_json_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery,
     Binary, BlockInfo, Coin, Event, Order, Querier, Storage,
 };
-#[cfg(feature = "cosmwasm_1_1")]
 use cosmwasm_std::{StdResult, SupplyResponse, Uint128};
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
@@ -84,7 +83,6 @@ impl BankKeeper {
         }
     }
 
-    #[cfg(feature = "cosmwasm_1_1")]
     fn get_supply(&self, bank_storage: &dyn Storage, denom: String) -> AnyResult<Coin> {
         let supply: Uint128 = BALANCES
             .range(bank_storage, None, None, Order::Ascending)
@@ -241,11 +239,9 @@ impl Module for BankKeeper {
                 let res = BalanceResponse::new(amount);
                 Ok(to_json_binary(&res)?)
             }
-            #[cfg(feature = "cosmwasm_1_1")]
             BankQuery::Supply { denom } => {
                 let amount = self.get_supply(&bank_storage, denom)?;
-                let mut res = SupplyResponse::default();
-                res.amount = amount;
+                let res = SupplyResponse::new(amount);
                 Ok(to_json_binary(&res)?)
             }
             q => bail!("Unsupported bank query: {:?}", q),

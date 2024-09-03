@@ -165,7 +165,6 @@ fn multi_level_bank_cache() {
 }
 
 #[test]
-#[cfg(feature = "cosmwasm_1_2")]
 fn duplicate_contract_code() {
     // set up the multi-test application
     let mut app = App::default();
@@ -1554,7 +1553,6 @@ mod response_validation {
 
 mod contract_instantiation {
     #[test]
-    #[cfg(feature = "cosmwasm_1_2")]
     fn instantiate2_works() {
         use super::*;
 
@@ -1590,7 +1588,6 @@ mod contract_instantiation {
 mod wasm_queries {
 
     #[test]
-    #[cfg(feature = "cosmwasm_1_2")]
     fn query_existing_code_info() {
         use super::*;
         let mut app = App::default();
@@ -1602,7 +1599,6 @@ mod wasm_queries {
     }
 
     #[test]
-    #[cfg(feature = "cosmwasm_1_2")]
     fn query_non_existing_code_info() {
         use super::*;
         let app = App::default();
