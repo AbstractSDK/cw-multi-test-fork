@@ -127,20 +127,33 @@ impl WasmContract {
                     .remote
                     .rt
                     .block_on(wasm_querier._contract_info(contract_addr))?;
-                let code = fork_state
-                    .remote
-                    .rt
-                    .block_on(wasm_querier._code_data(code_info.code_id))?;
+
+                let cache_key = format!("{}:{}", fork_state.remote.chain_id, code_info.code_id);
+
+                let code = wasm_caching::maybe_cached_wasm(cache_key, || {
+                    fork_state
+                        .remote
+                        .rt
+                        .block_on(wasm_querier._code_data(code_info.code_id))
+                        .map_err(Into::into)
+                })?;
+
                 Ok(code)
             }
             WasmContract::DistantCodeId(DistantCodeId { code_id }) => {
                 let wasm_querier =
                     CosmWasm::new_sync(fork_state.remote.channel.clone(), &fork_state.remote.rt);
 
-                let code = fork_state
-                    .remote
-                    .rt
-                    .block_on(wasm_querier._code_data(*code_id))?;
+                let cache_key = format!("{}:{}", fork_state.remote.chain_id, &code_id);
+
+                let code = wasm_caching::maybe_cached_wasm(cache_key, || {
+                    fork_state
+                        .remote
+                        .rt
+                        .block_on(wasm_querier._code_data(*code_id))
+                        .map_err(|e| e.into())
+                })?;
+
                 Ok(code)
             }
         }
@@ -421,5 +434,193 @@ pub fn execute_function<
                 .map_err(StdError::generic_err)?;
             Ok(WasmOutput::Sudo(result))
         }
+    }
+}
+
+mod wasm_caching {
+    use super::*;
+
+    use std::{
+        env, fs,
+        io::{Read, Seek},
+        os::unix::fs::FileExt,
+        path::PathBuf,
+    };
+
+    use anyhow::{bail, Context};
+
+    const WASM_CACHE_DIR: &str = "wasm_cache";
+    const WASM_CACHE_ENV: &str = "WASM_CACHE";
+
+    static CARGO_TARGET_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+    pub(crate) fn cargo_target_dir() -> &'static PathBuf {
+        CARGO_TARGET_DIR.get_or_init(|| {
+            cargo_metadata::MetadataCommand::new()
+                .no_deps()
+                .exec()
+                .unwrap()
+                .target_directory
+                .into()
+        })
+    }
+
+    enum WasmCachingStatus {
+        /// Currently writing
+        Writing,
+        /// This wasm ready for use
+        Ready,
+        /// Writing to it have failed, it's not usable until valid cache written to it
+        Corrupted,
+    }
+
+    impl From<WasmCachingStatus> for u8 {
+        fn from(value: WasmCachingStatus) -> Self {
+            match value {
+                WasmCachingStatus::Writing => 0,
+                WasmCachingStatus::Ready => 1,
+                WasmCachingStatus::Corrupted => 2,
+            }
+        }
+    }
+
+    impl From<u8> for WasmCachingStatus {
+        fn from(value: u8) -> Self {
+            match value {
+                0 => WasmCachingStatus::Writing,
+                1 => WasmCachingStatus::Ready,
+                2 => WasmCachingStatus::Corrupted,
+                _ => unimplemented!(),
+            }
+        }
+    }
+
+    impl WasmCachingStatus {
+        pub fn set_status(self, file: &fs::File) {
+            file.write_at(&[self.into()], 0)
+                .expect("Failed to update wasm caching status");
+        }
+
+        pub fn status(file: &fs::File) -> Self {
+            let buf = &mut [0];
+            match file.read_at(buf, 0) {
+                Ok(_) => buf[0].into(),
+                Err(_) => WasmCachingStatus::Corrupted,
+            }
+        }
+    }
+
+    /// Returns wasm bytes for the contract
+    ///
+    /// Will get cached wasm stored in `CARGO_TARGET_DIR` (./target/ from project root by default)
+    /// This feature can be disabled by setting wasm cache environment variable to `false`: `WASM_CACHE=false`
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A string key that represents unique id of the contract (usually chain-id:code_id)
+    /// * `wasm_code_bytes` - Function that returns non-cached version of the contract
+    ///
+    /// # Scenarios
+    ///
+    /// - Wasm caching disabled: return result of the `wasm_code_bytes` function
+    /// - Wasm file not found in cache location: return result of the `wasm_code_bytes` function, saving cache on on success
+    /// - Wasm stored in cache: return bytes
+    pub(crate) fn maybe_cached_wasm<F: Fn() -> AnyResult<Vec<u8>>>(
+        key: String,
+        wasm_code_bytes: F,
+    ) -> AnyResult<Vec<u8>> {
+        let wasm_cache_enabled = env::var(WASM_CACHE_ENV)
+            .ok()
+            .and_then(|wasm_cache| wasm_cache.parse().ok())
+            .unwrap_or(true);
+
+        // Wasm caching disabled, return function result
+        if !wasm_cache_enabled {
+            return wasm_code_bytes();
+        }
+
+        let wasm_cache_dir = cargo_target_dir().join(WASM_CACHE_DIR);
+        // Prepare cache directory in `./target/`
+        match fs::metadata(&wasm_cache_dir) {
+            // Verify it's dir
+            Ok(wasm_cache_metadata) => {
+                if !wasm_cache_metadata.is_dir() {
+                    bail!("{WASM_CACHE_DIR} supposed to be directory")
+                }
+            }
+            // Error on checking cache dir, try to create it
+            Err(_) => fs::create_dir(&wasm_cache_dir)
+                .context("Wasm cache directory cannot be created, please check permissions")?,
+        }
+
+        let cached_wasm_file = wasm_cache_dir.join(key);
+        let wasm_bytes = match fs::metadata(&cached_wasm_file) {
+            // Cache file exists, try to read it
+            Ok(_) => {
+                let mut file =
+                    fs::File::open(&cached_wasm_file).context("unable to open wasm cache file")?;
+                // If someone is writing to it we need to wait, and then check again
+                // TODO: decide what is the best way to wait for it
+                let mut status = WasmCachingStatus::status(&file);
+                if let WasmCachingStatus::Writing = status {
+                    let options = file_lock::FileOptions::new().read(true);
+                    // Blocking lock until writer unlocks it
+                    let file_lock = file_lock::FileLock::lock(&cached_wasm_file, true, options)?;
+                    status = WasmCachingStatus::status(&file_lock.file);
+                    file_lock.unlock()?
+                }
+                match status {
+                    WasmCachingStatus::Ready => {
+                        let mut buf = vec![];
+                        file.seek(std::io::SeekFrom::Start(1))?;
+                        file.read_to_end(&mut buf)
+                            .context("unable to open wasm cache file")?;
+                        buf
+                    }
+                    // Ready for read
+                    // Corrupted, need to write new wasm
+                    WasmCachingStatus::Corrupted => {
+                        store_new_wasm(wasm_code_bytes, &cached_wasm_file)?
+                    }
+                    // Someone dropped file lock with caching status Writing it means it's corrupted
+                    WasmCachingStatus::Writing => {
+                        store_new_wasm(wasm_code_bytes, &cached_wasm_file)?
+                    }
+                }
+            }
+            // Error on checking cache dir, get wasm bytes and try to cache it
+            Err(_) => store_new_wasm(wasm_code_bytes, &cached_wasm_file)?,
+        };
+        Ok(wasm_bytes)
+    }
+
+    fn store_new_wasm<F: Fn() -> AnyResult<Vec<u8>>>(
+        wasm_code_bytes: F,
+        cached_wasm_file: &PathBuf,
+    ) -> Result<Vec<u8>, anyhow::Error> {
+        let options = file_lock::FileOptions::new().create(true).write(true);
+        let file_lock_status = file_lock::FileLock::lock(cached_wasm_file, false, options);
+        let wasm = wasm_code_bytes()?;
+        if let Err(cache_save_err) = file_lock_status.and_then(|file_lock| {
+            // Set writing status
+            WasmCachingStatus::Writing.set_status(&file_lock.file);
+
+            match file_lock.file.write_all_at(&wasm, 1) {
+                // Done writing, set ready status
+                Ok(()) => {
+                    WasmCachingStatus::Ready.set_status(&file_lock.file);
+                    Ok(())
+                }
+                // Failed to write, set corrupted status
+                Err(e) => {
+                    WasmCachingStatus::Corrupted.set_status(&file_lock.file);
+                    Err(e)
+                }
+            }
+        }) {
+            // It's not critical if it fails, as we already have wasm bytes, so we just log it
+            log::error!(target: "wasm_caching", "Failed to save wasm cache: {cache_save_err}")
+        }
+        Ok(wasm)
     }
 }
