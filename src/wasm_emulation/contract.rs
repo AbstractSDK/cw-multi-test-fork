@@ -465,6 +465,7 @@ mod wasm_caching {
         })
     }
 
+    #[repr(u8)]
     enum WasmCachingStatus {
         /// Currently writing
         Writing,
@@ -472,16 +473,6 @@ mod wasm_caching {
         Ready,
         /// Writing to it have failed, it's not usable until valid cache written to it
         Corrupted,
-    }
-
-    impl From<WasmCachingStatus> for u8 {
-        fn from(value: WasmCachingStatus) -> Self {
-            match value {
-                WasmCachingStatus::Writing => 0,
-                WasmCachingStatus::Ready => 1,
-                WasmCachingStatus::Corrupted => 2,
-            }
-        }
     }
 
     impl From<u8> for WasmCachingStatus {
@@ -497,7 +488,7 @@ mod wasm_caching {
 
     impl WasmCachingStatus {
         pub fn set_status(self, file: &fs::File) {
-            file.write_at(&[self.into()], 0)
+            file.write_at(&[self as u8], 0)
                 .expect("Failed to update wasm caching status");
         }
 

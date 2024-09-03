@@ -19,11 +19,7 @@ pub struct RemoteChannel {
 }
 
 impl RemoteChannel {
-    pub fn new(
-        rt: &Runtime,
-        chain: impl Into<ChainInfoOwned>,
-        _: impl Into<String>,
-    ) -> AnyResult<Self> {
+    pub fn new(rt: &Runtime, chain: impl Into<ChainInfoOwned>) -> AnyResult<Self> {
         let chain: ChainInfoOwned = chain.into();
         Ok(Self {
             rt: rt.handle().clone(),
