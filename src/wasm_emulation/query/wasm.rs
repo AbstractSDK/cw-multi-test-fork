@@ -178,7 +178,10 @@ impl<
                     } else {
                         // Distant Registered Contract case
                         <WasmContract as Contract<ExecC, QueryC>>::query(
-                            &WasmContract::new_distant_code_id(local_contract.code_id),
+                            &WasmContract::new_distant_code_id(
+                                local_contract.code_id,
+                                remote.clone(),
+                            ),
                             deps.as_ref(),
                             env,
                             msg.to_vec(),
@@ -188,7 +191,10 @@ impl<
                 } else {
                     // Distant UnRegistered Contract case
                     <WasmContract as Contract<ExecC, QueryC>>::query(
-                        &WasmContract::new_distant_contract(contract_addr.to_string()),
+                        &WasmContract::new_distant_contract(
+                            contract_addr.to_string(),
+                            remote.clone(),
+                        ),
                         deps.as_ref(),
                         env,
                         msg.to_vec(),
