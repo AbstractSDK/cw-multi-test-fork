@@ -10,7 +10,7 @@ use cosmwasm_std::CustomMsg;
 use cosmwasm_std::StdError;
 use cosmwasm_vm::{
     call_execute, call_instantiate, call_migrate, call_query, call_reply, call_sudo, Backend,
-    BackendApi, Instance, InstanceOptions, Querier, Size,
+    BackendApi, Instance, InstanceOptions, Querier,
 };
 use cw_orch::daemon::queriers::CosmWasm;
 
@@ -18,8 +18,7 @@ use cosmwasm_std::Order;
 use cosmwasm_std::Storage;
 
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
-use serde::Serialize;
+use wasmer::Engine;
 use wasmer::Module;
 
 use crate::wasm_emulation::input::InstanceArguments;
@@ -62,30 +61,22 @@ fn apply_storage_changes<ExecC>(storage: &mut dyn Storage, output: &WasmRunnerOu
 /// number of contract executions and queries on one instance. For this reason it is significatly
 /// higher than the limit for a single execution that we have in the production setup.
 const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000; // ~0.5s
-const DEFAULT_MEMORY_LIMIT: Option<Size> = Some(Size::mebi(16));
-
-#[derive(Debug, Clone)]
-pub struct DistantContract {
-    pub contract_addr: Addr,
-    pub module: Module,
-}
 
 #[derive(Debug, Clone)]
 pub struct DistantCodeId {
     pub code_id: u64,
-    pub module: Module,
+    pub module: (Engine, Module),
 }
 
 #[derive(Clone)]
 pub struct LocalWasmContract {
     pub code: Vec<u8>,
-    pub module: Module,
+    pub module: (Engine, Module),
 }
 
 #[derive(Debug, Clone)]
 pub enum WasmContract {
     Local(LocalWasmContract),
-    DistantContract(DistantContract),
     DistantCodeId(DistantCodeId),
 }
 
@@ -116,35 +107,6 @@ impl WasmContract {
         })
     }
 
-    pub fn new_distant_contract(contract_addr: String, remote: RemoteChannel) -> Self {
-        let contract_addr = Addr::unchecked(contract_addr);
-        let code = {
-            let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), &remote.rt);
-
-            let code_info = remote
-                .rt
-                .block_on(wasm_querier._contract_info(&contract_addr))
-                .unwrap();
-
-            let cache_key = format!("{}:{}", remote.chain_id, code_info.code_id);
-
-            let code = wasm_caching::maybe_cached_wasm(cache_key, || {
-                remote
-                    .rt
-                    .block_on(wasm_querier._code_data(code_info.code_id))
-                    .map_err(Into::into)
-            })
-            .unwrap();
-
-            code
-        };
-
-        Self::DistantContract(DistantContract {
-            contract_addr: Addr::unchecked(contract_addr),
-            module: create_module(&code).unwrap(),
-        })
-    }
-
     pub fn new_distant_code_id(code_id: u64, remote: RemoteChannel) -> Self {
         let code = {
             let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), &remote.rt);
@@ -167,60 +129,10 @@ impl WasmContract {
         })
     }
 
-    pub fn get_code<ExecC: CustomMsg + 'static, QueryC: CustomQuery + DeserializeOwned>(
-        &self,
-        fork_state: ForkState<ExecC, QueryC>,
-    ) -> AnyResult<Vec<u8>> {
+    pub fn get_module(&self) -> (Engine, Module) {
         match self {
-            WasmContract::Local(LocalWasmContract { code, .. }) => Ok(code.clone()),
-            WasmContract::DistantContract(DistantContract { contract_addr, .. }) => {
-                let wasm_querier =
-                    CosmWasm::new_sync(fork_state.remote.channel.clone(), &fork_state.remote.rt);
-
-                let code_info = fork_state
-                    .remote
-                    .rt
-                    .block_on(wasm_querier._contract_info(contract_addr))?;
-
-                let cache_key = format!("{}:{}", fork_state.remote.chain_id, code_info.code_id);
-
-                let code = wasm_caching::maybe_cached_wasm(cache_key, || {
-                    fork_state
-                        .remote
-                        .rt
-                        .block_on(wasm_querier._code_data(code_info.code_id))
-                        .map_err(Into::into)
-                })?;
-
-                Ok(code)
-            }
-            WasmContract::DistantCodeId(DistantCodeId { code_id, .. }) => {
-                let wasm_querier =
-                    CosmWasm::new_sync(fork_state.remote.channel.clone(), &fork_state.remote.rt);
-
-                let cache_key = format!("{}:{}", fork_state.remote.chain_id, &code_id);
-
-                let code = wasm_caching::maybe_cached_wasm(cache_key, || {
-                    fork_state
-                        .remote
-                        .rt
-                        .block_on(wasm_querier._code_data(*code_id))
-                        .map_err(|e| e.into())
-                })?;
-
-                Ok(code)
-            }
-        }
-    }
-
-    pub fn get_module(&self) -> Module {
-        match self {
-            WasmContract::Local(LocalWasmContract { code, module }) => module.clone(),
-            WasmContract::DistantContract(DistantContract {
-                contract_addr,
-                module,
-            }) => module.clone(),
-            WasmContract::DistantCodeId(DistantCodeId { code_id, module }) => module.clone(),
+            WasmContract::Local(LocalWasmContract { module, .. }) => module.clone(),
+            WasmContract::DistantCodeId(DistantCodeId { module, .. }) => module.clone(),
         }
     }
 
@@ -237,7 +149,6 @@ impl WasmContract {
             init_storage,
         } = args;
         let address = function.get_address();
-        let code = self.get_code(fork_state.clone())?;
         let module = self.get_module();
 
         let api = RealApi::new(&fork_state.remote.pub_address_prefix);
@@ -255,21 +166,18 @@ impl WasmContract {
         let options = InstanceOptions {
             gas_limit: DEFAULT_GAS_LIMIT,
         };
-        let memory_limit = DEFAULT_MEMORY_LIMIT;
 
         // Then we create the instance
-        let mut instance = instance_from_reused_module(module, backend, options, memory_limit)?;
+
+        let mut instance = instance_from_reused_module(module, backend, options)?;
 
         let gas_before = instance.get_gas_left();
-        println!("Executing function");
 
         // Then we call the function that we wanted to call
         let result = execute_function(&mut instance, function)?;
-        println!("function executed");
 
         let gas_after = instance.get_gas_left();
 
-        println!("Recycling instance");
         // We return the code response + any storage change (or the whole local storage object), with serializing
         let mut recycled_instance = instance.recycle().unwrap();
 
@@ -301,6 +209,13 @@ impl WasmContract {
             operation,
             self
         );
+    }
+
+    pub fn code_id(&self) -> u64 {
+        match self {
+            WasmContract::Local(_) => unimplemented!(),
+            WasmContract::DistantCodeId(d) => d.code_id,
+        }
     }
 }
 

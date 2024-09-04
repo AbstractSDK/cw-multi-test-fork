@@ -266,10 +266,8 @@ where
             module: create_module(&code).unwrap(),
             code,
         });
-        println!("Storing wasm code");
 
         self.code_base.borrow_mut().insert(code_id, code);
-        println!("Stored wasm code");
         let checksum = self.checksum_generator.checksum(&creator, code_id as u64);
         self.code_data.insert(
             code_id,
