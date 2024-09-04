@@ -67,7 +67,7 @@ impl<ExecC, QueryC: CustomQuery> AllWasmQuerier for WasmKeeper<ExecC, QueryC> {
         Ok(WasmStorage {
             contracts,
             storage: all_local_state,
-            codes: self.code_base.clone(),
+            codes: self.code_base.borrow().clone(),
             code_data: self.code_data.clone(),
         })
     }

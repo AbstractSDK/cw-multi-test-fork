@@ -9,8 +9,9 @@ use crate::prefixed_storage::{prefixed, prefixed_read, PrefixedStorage, Readonly
 use crate::queries::wasm::WasmRemoteQuerier;
 use crate::transactions::transactional;
 use crate::wasm_emulation::channel::RemoteChannel;
-use crate::wasm_emulation::contract::WasmContract;
+use crate::wasm_emulation::contract::{LocalWasmContract, WasmContract};
 use crate::wasm_emulation::input::QuerierStorage;
+use crate::wasm_emulation::instance::create_module;
 use crate::wasm_emulation::query::mock_querier::{ForkState, LocalForkedState};
 use crate::wasm_emulation::query::AllWasmQuerier;
 use cosmwasm_std::testing::mock_wasmd_attr;
@@ -26,6 +27,7 @@ use prost::Message;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -116,7 +118,7 @@ pub trait Wasm<ExecC, QueryC: CustomQuery>: AllWasmQuerier {
     fn store_code(&mut self, creator: Addr, code: Box<dyn Contract<ExecC, QueryC>>) -> u64;
 
     /// Stores the contract's code and returns an identifier of the stored contract's code.
-    fn store_wasm_code(&mut self, creator: Addr, code: WasmContract) -> u64;
+    fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64;
 
     /// Returns `ContractData` for the contract with specified address.
     fn contract_data(&self, storage: &dyn Storage, address: &Addr) -> AnyResult<ContractData>;
@@ -128,7 +130,7 @@ pub trait Wasm<ExecC, QueryC: CustomQuery>: AllWasmQuerier {
 pub type LocalRustContract<ExecC, QueryC> = *mut dyn Contract<ExecC, QueryC>;
 pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
     /// Contract codes that stand for wasm code in real-life blockchain.
-    pub code_base: HashMap<usize, WasmContract>,
+    pub code_base: RefCell<HashMap<usize, WasmContract>>,
     /// Contract codes that stand for rust code living in the current instance
     /// We also associate the queries to them to make sure we are able to use them with the vm instance
     pub rust_codes: HashMap<usize, LocalRustContract<ExecC, QueryC>>,
@@ -147,7 +149,7 @@ pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
 impl<ExecC, QueryC: CustomQuery> Default for WasmKeeper<ExecC, QueryC> {
     fn default() -> WasmKeeper<ExecC, QueryC> {
         Self {
-            code_base: HashMap::new(),
+            code_base: HashMap::new().into(),
             code_data: HashMap::new(),
             address_generator: Box::new(SimpleAddressGenerator),
             checksum_generator: Box::new(SimpleChecksumGenerator),
@@ -258,9 +260,14 @@ where
 
     /// Stores the contract's code in the in-memory lookup table.
     /// Returns an identifier of the stored contract code.
-    fn store_wasm_code(&mut self, creator: Addr, code: WasmContract) -> u64 {
-        let code_id = self.code_base.len() + 1 + LOCAL_WASM_CODE_OFFSET;
-        self.code_base.insert(code_id, code);
+    fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
+        let code_id = self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET;
+        let code = WasmContract::Local(LocalWasmContract {
+            module: create_module(&code).unwrap(),
+            code,
+        });
+
+        self.code_base.borrow_mut().insert(code_id, code);
         let checksum = self.checksum_generator.checksum(&creator, code_id as u64);
         self.code_data.insert(
             code_id,
@@ -349,15 +356,28 @@ where
         'a: 'b,
     {
         let code_data = self.code_data(code_id)?;
-        let code = self.code_base.get(&code_data.code_base_id);
+        let code = self
+            .code_base
+            .borrow()
+            .get(&code_data.code_base_id)
+            .cloned();
         if let Some(code) = code {
-            Ok(ContractBox::Borrowed(code))
+            Ok(ContractBox::Owned(Box::new(code)))
         } else if let Some(&rust_code) = self.rust_codes.get(&code_data.code_base_id) {
             Ok(ContractBox::Borrowed(unsafe {
                 rust_code.as_ref().unwrap()
             }))
         } else {
-            let wasm_contract = WasmContract::new_distant_code_id(code_id);
+            // We fetch the code and save the corresponding module in memory
+            let wasm_contract =
+                WasmContract::new_distant_code_id(code_id, self.remote.clone().unwrap());
+
+            // We save it in memory
+            self.code_base
+                .borrow_mut()
+                .insert(code_id as usize, wasm_contract.clone());
+
+            // And return a Owned reference
             Ok(ContractBox::Owned(Box::new(wasm_contract)))
         }
     }

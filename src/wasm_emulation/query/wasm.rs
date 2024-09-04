@@ -21,6 +21,7 @@ use cosmwasm_std::{
 use cosmwasm_std::{ContractInfo, ContractResult};
 
 use cosmwasm_std::WasmQuery;
+use cw_orch::daemon::queriers::CosmWasm;
 use serde::de::DeserializeOwned;
 
 use crate::wasm_emulation::channel::RemoteChannel;
@@ -134,51 +135,56 @@ impl<
                 };
                 let mut env = self.fork_state.local_state.env.clone();
                 env.contract = ContractInfo {
-                    address: Addr::unchecked(contract_addr),
+                    address: addr.clone(),
                 };
 
-                let result = if let Some(local_contract) = self
+                // First we get the code id corresponding to the contract
+                let code_id = if let Some(local_contract) = self
                     .fork_state
                     .querier_storage
                     .wasm
                     .contracts
                     .get(contract_addr)
                 {
-                    // If the contract data is already defined in our storage, we load it from there
-                    if let Some(code) = self
-                        .fork_state
-                        .querier_storage
-                        .wasm
-                        .codes
-                        .get(&(local_contract.code_id as usize))
-                    {
-                        // Local Wasm Contract case
-                        <WasmContract as Contract<ExecC, QueryC>>::query(
-                            code,
-                            deps.as_ref(),
-                            env,
-                            msg.to_vec(),
-                            self.fork_state.clone(),
-                        )
-                    } else if let Some(local_contract) = self
-                        .fork_state
-                        .local_state
-                        .contracts
-                        .get(&(local_contract.code_id as usize))
-                    {
-                        // Local Rust Contract case
-                        unsafe {
-                            local_contract.as_ref().unwrap().query(
-                                deps.as_ref(),
-                                env,
-                                msg.to_vec(),
-                                self.fork_state.clone(),
-                            )
-                        }
-                    } else {
-                        // Distant Registered Contract case
-                        <WasmContract as Contract<ExecC, QueryC>>::query(
-                            &WasmContract::new_distant_code_id(local_contract.code_id),
+                    local_contract.code_id
+                } else {
+                    let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), &remote.rt);
+
+                    let code_info = remote
+                        .rt
+                        .block_on(wasm_querier._contract_info(&addr))
+                        .unwrap();
+
+                    code_info.code_id
+                };
+
+                // Then, we get the corresponding wasm contract
+
+                // If the contract data is already defined in our storage, we load it from there
+                let result = if let Some(code) = self
+                    .fork_state
+                    .querier_storage
+                    .wasm
+                    .codes
+                    .get(&(code_id as usize))
+                {
+                    // Local Wasm Contract case
+                    <WasmContract as Contract<ExecC, QueryC>>::query(
+                        code,
+                        deps.as_ref(),
+                        env,
+                        msg.to_vec(),
+                        self.fork_state.clone(),
+                    )
+                } else if let Some(local_contract) = self
+                    .fork_state
+                    .local_state
+                    .contracts
+                    .get(&(code_id as usize))
+                {
+                    // Local Rust Contract case
+                    unsafe {
+                        local_contract.as_ref().unwrap().query(
                             deps.as_ref(),
                             env,
                             msg.to_vec(),
@@ -186,9 +192,11 @@ impl<
                         )
                     }
                 } else {
-                    // Distant UnRegistered Contract case
+                    // Distant Registered Contract case
+                    // TODO, this should be part of the cache as well
+                    // However, it's not really possible to register that data inside the App, because this is deep in the execution layer
                     <WasmContract as Contract<ExecC, QueryC>>::query(
-                        &WasmContract::new_distant_contract(contract_addr.to_string()),
+                        &WasmContract::new_distant_code_id(code_id, remote.clone()),
                         deps.as_ref(),
                         env,
                         msg.to_vec(),
