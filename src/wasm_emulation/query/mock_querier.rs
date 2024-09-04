@@ -63,7 +63,7 @@ pub struct MockQuerier<
     bank: BankQuerier,
 
     staking: StakingQuerier,
-    pub wasm: WasmQuerier<ExecC, QueryC>,
+    wasm: WasmQuerier<ExecC, QueryC>,
 
     //Box<dyn Fn(Deps<'_, C>, Env, Vec<u8>) -> Result<Binary, anyhow::Error>>, //fn(deps: Deps<C>, env: Env, msg: Vec<u8>) -> Result<Binary, anyhow::Error>,
     /// A handler to handle custom queries. This is set to a dummy handler that
