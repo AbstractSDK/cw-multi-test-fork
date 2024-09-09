@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Result as AnyResult;
 use clone_cw_multi_test::{
     addons::{MockAddressGenerator, MockApiBech32},
-    wasm_emulation::{channel::RemoteChannel, contract::WasmContract},
+    wasm_emulation::channel::RemoteChannel,
     App, AppBuilder, BankKeeper, ContractWrapper, Executor, WasmKeeper,
 };
 use cosmwasm_std::{Addr, Empty};
@@ -69,7 +69,12 @@ fn test() -> AnyResult<()> {
 
     let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
-    let remote_channel = RemoteChannel::new(&runtime, chain.clone())?;
+    let remote_channel = RemoteChannel::new(
+        &runtime,
+        chain.grpc_urls,
+        chain.chain_id,
+        chain.network_info.pub_address_prefix,
+    )?;
 
     let wasm = WasmKeeper::<Empty, Empty>::new()
         .with_remote(remote_channel.clone())

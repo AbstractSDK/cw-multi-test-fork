@@ -20,7 +20,12 @@ pub fn test() -> anyhow::Result<()> {
 
     let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
-    let remote_channel = RemoteChannel::new(&runtime, chain.clone())?;
+    let remote_channel = RemoteChannel::new(
+        &runtime,
+        chain.grpc_urls,
+        chain.chain_id,
+        chain.network_info.pub_address_prefix,
+    )?;
     let wasm = WasmKeeper::<Empty, Empty>::new().with_remote(remote_channel.clone());
 
     let bank = BankKeeper::new().with_remote(remote_channel.clone());
