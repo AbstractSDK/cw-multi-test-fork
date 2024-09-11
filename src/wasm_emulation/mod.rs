@@ -7,3 +7,5 @@ pub mod channel;
 pub mod contract;
 
 pub mod api;
+
+pub mod instance;

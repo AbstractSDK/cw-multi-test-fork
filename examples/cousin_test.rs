@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Result as AnyResult;
 use clone_cw_multi_test::{
     addons::{MockAddressGenerator, MockApiBech32},
-    wasm_emulation::{channel::RemoteChannel, contract::WasmContract},
+    wasm_emulation::channel::RemoteChannel,
     App, AppBuilder, BankKeeper, ContractWrapper, Executor, WasmKeeper,
 };
 use cosmwasm_std::{Addr, Empty};
@@ -66,11 +66,15 @@ fn test() -> AnyResult<()> {
             .join("counter_contract_with_cousin.wasm"),
     )
     .unwrap();
-    let wasm_contract = WasmContract::new_local(code);
 
     let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
-    let remote_channel = RemoteChannel::new(&runtime, chain.clone())?;
+    let remote_channel = RemoteChannel::new(
+        &runtime,
+        chain.grpc_urls,
+        chain.chain_id,
+        chain.network_info.pub_address_prefix,
+    )?;
 
     let wasm = WasmKeeper::<Empty, Empty>::new()
         .with_remote(remote_channel.clone())
@@ -88,7 +92,7 @@ fn test() -> AnyResult<()> {
 
     let sender = Addr::unchecked(SENDER);
     let rust_code_id = app.store_code(Box::new(rust_contract));
-    let wasm_code_id = app.store_wasm_code(wasm_contract);
+    let wasm_code_id = app.store_wasm_code(code);
 
     let counter_rust = app
         .instantiate_contract(
@@ -111,9 +115,6 @@ fn test() -> AnyResult<()> {
             Some(sender.to_string()),
         )
         .unwrap();
-
-    println!("Rust contract {}", counter_rust);
-    println!("Wasm contract {}", counter_wasm);
 
     app.execute_contract(
         sender.clone(),

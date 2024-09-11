@@ -86,18 +86,16 @@ impl BankQuerier {
                     let query_result = self
                         .remote
                         .rt
-                        .block_on(querier._balance(address, Some(denom.clone())));
+                        .block_on(querier._balance(&Addr::unchecked(address), Some(denom.clone())));
                     if let Ok(distant_amount) = query_result {
                         amount = Some(distant_amount[0].amount)
                     }
                 }
 
-                let bank_res = BalanceResponse {
-                    amount: Coin {
-                        amount: amount.unwrap(),
-                        denom: denom.to_string(),
-                    },
-                };
+                let bank_res = BalanceResponse::new(Coin {
+                    amount: amount.unwrap(),
+                    denom: denom.to_string(),
+                });
                 to_json_binary(&bank_res).into()
             }
             BankQuery::AllBalances { address } => {
@@ -110,16 +108,16 @@ impl BankQuerier {
                         channel: self.remote.channel.clone(),
                         rt_handle: Some(self.remote.rt.clone()),
                     };
-                    let query_result: Result<Vec<Coin>, _> =
-                        self.remote.rt.block_on(querier._balance(address, None));
+                    let query_result: Result<Vec<Coin>, _> = self
+                        .remote
+                        .rt
+                        .block_on(querier._balance(&Addr::unchecked(address), None));
                     if let Ok(distant_amount) = query_result {
                         amount = Some(distant_amount)
                     }
                 }
 
-                let bank_res = AllBalanceResponse {
-                    amount: amount.unwrap(),
-                };
+                let bank_res = AllBalanceResponse::new(amount.unwrap());
                 to_json_binary(&bank_res).into()
             }
             &_ => panic!("Not implemented {:?}", request),

@@ -2,6 +2,7 @@ use crate::wasm_emulation::query::gas::{GAS_COST_CANONICALIZE, GAS_COST_HUMANIZE
 use bech32::{FromBase32, ToBase32, Variant};
 use cosmwasm_std::Addr;
 use cosmwasm_vm::{BackendApi, BackendError, GasInfo};
+use std::ops::AddAssign;
 
 const SHORT_CANON_LEN: usize = 20;
 const LONG_CANON_LEN: usize = 32;
@@ -60,20 +61,49 @@ impl RealApi {
     pub fn next_address(&self, count: usize) -> Addr {
         let mut canon = format!("ADDRESS_{}", count).as_bytes().to_vec();
         canon.resize(SHORT_CANON_LEN, 0);
-        Addr::unchecked(self.human_address(&canon).0.unwrap())
+        Addr::unchecked(self.addr_humanize(&canon).0.unwrap())
     }
 
     pub fn next_contract_address(&self, count: usize) -> Addr {
         let mut canon = format!("CONTRACT_{}", count).as_bytes().to_vec();
         canon.resize(LONG_CANON_LEN, 0);
-        Addr::unchecked(self.human_address(&canon).0.unwrap())
+        Addr::unchecked(self.addr_humanize(&canon).0.unwrap())
     }
 }
 
 impl BackendApi for RealApi {
-    fn canonical_address(&self, address: &str) -> (Result<Vec<u8>, BackendError>, GasInfo) {
+    fn addr_validate(&self, input: &str) -> cosmwasm_vm::BackendResult<()> {
+        let (canon, mut gas_cost) = self.addr_canonicalize(input);
+
+        if let Err(e) = canon {
+            return (Err(e), gas_cost);
+        }
+        let canon = canon.unwrap();
+
+        let (new_human, human_gas_cost) = self.addr_humanize(&canon);
+
+        if let Err(e) = new_human {
+            gas_cost.add_assign(human_gas_cost);
+            return (Err(e), gas_cost);
+        }
+        let new_human = new_human.unwrap();
+
+        if input == new_human {
+            (Ok(()), gas_cost)
+        } else {
+            (
+                Err(BackendError::user_err(format!(
+                    "Address invalid : {}",
+                    input
+                ))),
+                gas_cost,
+            )
+        }
+    }
+
+    fn addr_canonicalize(&self, human: &str) -> cosmwasm_vm::BackendResult<Vec<u8>> {
         let gas_cost = GasInfo::with_externally_used(GAS_COST_CANONICALIZE);
-        if address.trim().is_empty() {
+        if human.trim().is_empty() {
             return (
                 Err(BackendError::Unknown {
                     msg: "empty address string is not allowed".to_string(),
@@ -82,12 +112,13 @@ impl BackendApi for RealApi {
             );
         }
 
-        (bytes_from_bech32(address, &self.get_prefix()), gas_cost)
+        (bytes_from_bech32(human, &self.get_prefix()), gas_cost)
     }
-    fn human_address(&self, canon: &[u8]) -> (Result<String, BackendError>, GasInfo) {
+
+    fn addr_humanize(&self, canonical: &[u8]) -> cosmwasm_vm::BackendResult<String> {
         let gas_cost = GasInfo::with_externally_used(GAS_COST_HUMANIZE);
 
-        if canon.len() != SHORT_CANON_LEN && canon.len() != LONG_CANON_LEN {
+        if canonical.len() != SHORT_CANON_LEN && canonical.len() != LONG_CANON_LEN {
             return (
                 Err(BackendError::Unknown {
                     msg: "Canon address doesn't have the right length".to_string(),
@@ -96,11 +127,11 @@ impl BackendApi for RealApi {
             );
         }
 
-        if canon.is_empty() {
+        if canonical.is_empty() {
             return (Ok("".to_string()), gas_cost);
         }
 
-        let human = bech32::encode(&self.get_prefix(), canon.to_base32(), Variant::Bech32)
+        let human = bech32::encode(&self.get_prefix(), canonical.to_base32(), Variant::Bech32)
             .map_err(|e| BackendError::Unknown { msg: e.to_string() });
 
         (human, gas_cost)

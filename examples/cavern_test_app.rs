@@ -58,7 +58,12 @@ pub fn test() -> anyhow::Result<()> {
 
     let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
-    let remote_channel = RemoteChannel::new(&runtime, chain.clone())?;
+    let remote_channel = RemoteChannel::new(
+        &runtime,
+        chain.grpc_urls,
+        chain.chain_id,
+        chain.network_info.pub_address_prefix,
+    )?;
 
     let wasm = WasmKeeper::<Empty, Empty>::new()
         .with_remote(remote_channel.clone())
@@ -127,9 +132,8 @@ pub fn test() -> anyhow::Result<()> {
             .join("counter_contract.wasm"),
     )
     .unwrap();
-    let counter_contract = WasmContract::new_local(code);
 
-    let code_id = app.store_wasm_code(counter_contract);
+    let code_id = app.store_wasm_code(code);
 
     // We try to instantiate a new contract. Should work ok !
     let contract_addr = app.instantiate_contract(

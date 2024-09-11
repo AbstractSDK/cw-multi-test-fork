@@ -13,7 +13,6 @@ use crate::module::{FailingModule, Module};
 use crate::staking::{Distribution, DistributionKeeper, StakeKeeper, Staking, StakingSudo};
 use crate::transactions::transactional;
 use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
-use crate::wasm_emulation::contract::WasmContract;
 use crate::{AppBuilder, Contract, GovFailingModule, IbcFailingModule};
 use cosmwasm_std::testing::{MockApi, MockStorage};
 use cosmwasm_std::{
@@ -237,7 +236,7 @@ where
     /// Registers contract code (like uploading wasm bytecode on a chain),
     /// so it can later be used to instantiate a contract.
     /// Only for wasm codes
-    pub fn store_wasm_code(&mut self, code: WasmContract) -> u64 {
+    pub fn store_wasm_code(&mut self, code: Vec<u8>) -> u64 {
         self.init_modules(|router, _, _| {
             router
                 .wasm
@@ -257,7 +256,7 @@ where
 
     /// Registers contract code (like [store_code](Self::store_code)),
     /// but takes the address of the code creator as an additional argument.
-    pub fn store_wasm_code_with_creator(&mut self, creator: Addr, code: WasmContract) -> u64 {
+    pub fn store_wasm_code_with_creator(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
         self.init_modules(|router, _, _| router.wasm.store_wasm_code(creator, code))
     }
 

@@ -24,9 +24,7 @@ impl WasmRemoteQuerier {
     pub fn load_distant_contract(remote: RemoteChannel, address: &Addr) -> AnyResult<ContractData> {
         let wasm_querier = CosmWasm::new_sync(remote.channel, &remote.rt);
 
-        let code_info = remote
-            .rt
-            .block_on(wasm_querier._contract_info(address.clone()))?;
+        let code_info = remote.rt.block_on(wasm_querier._contract_info(address))?;
 
         Ok(ContractData {
             admin: code_info.admin.map(Addr::unchecked),
@@ -37,7 +35,7 @@ impl WasmRemoteQuerier {
 
     pub fn raw_query(
         remote: RemoteChannel,
-        contract_addr: String,
+        contract_addr: &Addr,
         key: Binary,
     ) -> AnyResult<Vec<u8>> {
         let wasm_querier = CosmWasm::new_sync(remote.channel, &remote.rt);
@@ -69,7 +67,7 @@ impl<ExecC, QueryC: CustomQuery> AllWasmQuerier for WasmKeeper<ExecC, QueryC> {
         Ok(WasmStorage {
             contracts,
             storage: all_local_state,
-            codes: self.code_base.clone(),
+            codes: self.code_base.borrow().clone(),
             code_data: self.code_data.clone(),
         })
     }

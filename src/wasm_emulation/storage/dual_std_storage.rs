@@ -2,7 +2,7 @@ use crate::wasm_emulation::channel::RemoteChannel;
 
 use cosmrs::proto::cosmos::base::query::v1beta1::PageRequest;
 use cosmrs::proto::cosmwasm::wasm::v1::Model;
-use cosmwasm_std::Record;
+use cosmwasm_std::{Addr, Record};
 use cosmwasm_std::{Order, Storage};
 use cw_orch::daemon::queriers::CosmWasm;
 use num_bigint::{BigInt, Sign};
@@ -39,7 +39,7 @@ const DISTANT_LIMIT: u64 = 5u64;
 
 struct DistantIter {
     remote: RemoteChannel,
-    contract_addr: String,
+    contract_addr: Addr,
     data: Vec<Model>,
     position: usize,
     key: Option<Vec<u8>>, // if set to None, there is no more keys to investigate in the distant container
@@ -73,7 +73,7 @@ impl<'i> Iterator for Iter<'i> {
                 .remote
                 .rt
                 .block_on(wasm_querier._all_contract_state(
-                    self.distant_iter.contract_addr.clone(),
+                    &self.distant_iter.contract_addr,
                     Some(PageRequest {
                         key: self.distant_iter.key.clone().unwrap(),
                         offset: 0,
@@ -136,7 +136,7 @@ pub struct DualStorage<'a> {
     pub local_storage: Box<dyn Storage + 'a>,
     pub removed_keys: HashSet<Vec<u8>>,
     pub remote: RemoteChannel,
-    pub contract_addr: String,
+    pub contract_addr: Addr,
 }
 
 impl<'a> DualStorage<'a> {
@@ -149,7 +149,7 @@ impl<'a> DualStorage<'a> {
             local_storage,
             remote,
             removed_keys: HashSet::default(),
-            contract_addr,
+            contract_addr: Addr::unchecked(contract_addr),
         })
     }
 }
@@ -162,9 +162,10 @@ impl<'a> Storage for DualStorage<'a> {
         if !self.removed_keys.contains(key) && value.as_ref().is_none() {
             let wasm_querier = CosmWasm::new_sync(self.remote.channel.clone(), &self.remote.rt);
 
-            let distant_result = self.remote.rt.block_on(
-                wasm_querier._contract_raw_state(self.contract_addr.clone(), key.to_vec()),
-            );
+            let distant_result = self
+                .remote
+                .rt
+                .block_on(wasm_querier._contract_raw_state(&self.contract_addr, key.to_vec()));
 
             if let Ok(result) = distant_result {
                 if !result.data.is_empty() {

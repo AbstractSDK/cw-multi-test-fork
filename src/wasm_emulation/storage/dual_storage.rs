@@ -5,8 +5,8 @@ use crate::wasm_emulation::storage::CLONE_TESTING_STORAGE_LOG;
 use super::mock_storage::MockStorage;
 use cosmrs::proto::cosmos::base::query::v1beta1::PageRequest;
 use cosmrs::proto::cosmwasm::wasm::v1::Model;
-use cosmwasm_std::Order;
 use cosmwasm_std::Record;
+use cosmwasm_std::{Addr, Order};
 use cosmwasm_vm::BackendError;
 use cosmwasm_vm::BackendResult;
 use cosmwasm_vm::GasInfo;
@@ -67,7 +67,7 @@ pub struct DualStorage {
     pub local_storage: MockStorage,
     pub removed_keys: HashSet<Vec<u8>>,
     pub remote: RemoteChannel,
-    pub contract_addr: String,
+    pub contract_addr: Addr,
     iterators: HashMap<u32, Iter>,
 }
 
@@ -88,7 +88,7 @@ impl DualStorage {
             local_storage,
             remote,
             removed_keys: HashSet::default(),
-            contract_addr,
+            contract_addr: Addr::unchecked(contract_addr),
             iterators: HashMap::new(),
         })
     }
@@ -111,9 +111,10 @@ impl Storage for DualStorage {
             log::debug!(target: CLONE_TESTING_STORAGE_LOG, "Value not set locally, fetching remote key");
             let wasm_querier = CosmWasm::new_sync(self.remote.channel.clone(), &self.remote.rt);
 
-            let distant_result = self.remote.rt.block_on(
-                wasm_querier._contract_raw_state(self.contract_addr.clone(), key.to_vec()),
-            );
+            let distant_result = self
+                .remote
+                .rt
+                .block_on(wasm_querier._contract_raw_state(&self.contract_addr, key.to_vec()));
 
             if let Ok(result) = distant_result {
                 if !result.data.is_empty() {
@@ -202,7 +203,7 @@ impl Storage for DualStorage {
                 .remote
                 .rt
                 .block_on(wasm_querier._all_contract_state(
-                    self.contract_addr.clone(),
+                    &self.contract_addr,
                     Some(PageRequest {
                         key: iterator.distant_iter.key.clone().unwrap(),
                         offset: 0,

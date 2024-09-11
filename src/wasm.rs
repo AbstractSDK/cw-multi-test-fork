@@ -9,23 +9,25 @@ use crate::prefixed_storage::{prefixed, prefixed_read, PrefixedStorage, Readonly
 use crate::queries::wasm::WasmRemoteQuerier;
 use crate::transactions::transactional;
 use crate::wasm_emulation::channel::RemoteChannel;
-use crate::wasm_emulation::contract::WasmContract;
+use crate::wasm_emulation::contract::{LocalWasmContract, WasmContract};
 use crate::wasm_emulation::input::QuerierStorage;
+use crate::wasm_emulation::instance::create_module;
 use crate::wasm_emulation::query::mock_querier::{ForkState, LocalForkedState};
 use crate::wasm_emulation::query::AllWasmQuerier;
 use cosmwasm_std::testing::mock_wasmd_attr;
-use cosmwasm_std::CustomMsg;
 use cosmwasm_std::{
     to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Coin, ContractInfo,
-    ContractInfoResponse, CustomQuery, Deps, DepsMut, Env, Event, HexBinary, MessageInfo, Order,
-    Querier, QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult, Storage, SubMsg,
-    SubMsgResponse, SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
+    ContractInfoResponse, CustomQuery, Deps, DepsMut, Env, Event, MessageInfo, Order, Querier,
+    QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult, Storage, SubMsg, SubMsgResponse,
+    SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
 };
+use cosmwasm_std::{Checksum, CustomMsg};
 use cw_storage_plus::Map;
 use prost::Message;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -73,7 +75,7 @@ pub struct CodeData {
     /// Address of an account that initially stored the contract code.
     pub creator: Addr,
     /// Checksum of the contract's code base.
-    pub checksum: HexBinary,
+    pub checksum: Checksum,
     /// Identifier of the code base where the contract code is stored in memory.
     pub code_base_id: usize,
 }
@@ -116,7 +118,7 @@ pub trait Wasm<ExecC, QueryC: CustomQuery>: AllWasmQuerier {
     fn store_code(&mut self, creator: Addr, code: Box<dyn Contract<ExecC, QueryC>>) -> u64;
 
     /// Stores the contract's code and returns an identifier of the stored contract's code.
-    fn store_wasm_code(&mut self, creator: Addr, code: WasmContract) -> u64;
+    fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64;
 
     /// Returns `ContractData` for the contract with specified address.
     fn contract_data(&self, storage: &dyn Storage, address: &Addr) -> AnyResult<ContractData>;
@@ -128,7 +130,7 @@ pub trait Wasm<ExecC, QueryC: CustomQuery>: AllWasmQuerier {
 pub type LocalRustContract<ExecC, QueryC> = *mut dyn Contract<ExecC, QueryC>;
 pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
     /// Contract codes that stand for wasm code in real-life blockchain.
-    pub code_base: HashMap<usize, WasmContract>,
+    pub code_base: RefCell<HashMap<usize, WasmContract>>,
     /// Contract codes that stand for rust code living in the current instance
     /// We also associate the queries to them to make sure we are able to use them with the vm instance
     pub rust_codes: HashMap<usize, LocalRustContract<ExecC, QueryC>>,
@@ -147,7 +149,7 @@ pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
 impl<ExecC, QueryC: CustomQuery> Default for WasmKeeper<ExecC, QueryC> {
     fn default() -> WasmKeeper<ExecC, QueryC> {
         Self {
-            code_base: HashMap::new(),
+            code_base: HashMap::new().into(),
             code_data: HashMap::new(),
             address_generator: Box::new(SimpleAddressGenerator),
             checksum_generator: Box::new(SimpleChecksumGenerator),
@@ -192,19 +194,22 @@ where
             WasmQuery::ContractInfo { contract_addr } => {
                 let addr = api.addr_validate(&contract_addr)?;
                 let contract = self.contract_data(storage, &addr)?;
-                let mut res = ContractInfoResponse::default();
-                res.code_id = contract.code_id;
-                res.creator = contract.creator.to_string();
-                res.admin = contract.admin.map(|x| x.into());
+                let res = ContractInfoResponse::new(
+                    contract.code_id,
+                    contract.creator,
+                    contract.admin,
+                    false,
+                    None,
+                );
                 to_json_binary(&res).map_err(Into::into)
             }
-            #[cfg(feature = "cosmwasm_1_2")]
             WasmQuery::CodeInfo { code_id } => {
                 let code_data = self.code_data(code_id)?;
-                let mut res = cosmwasm_std::CodeInfoResponse::default();
-                res.code_id = code_id;
-                res.creator = code_data.creator.to_string();
-                res.checksum = code_data.checksum.clone();
+                let res = cosmwasm_std::CodeInfoResponse::new(
+                    code_id,
+                    code_data.creator,
+                    code_data.checksum,
+                );
                 to_json_binary(&res).map_err(Into::into)
             }
             other => bail!(Error::UnsupportedWasmQuery(other)),
@@ -255,9 +260,14 @@ where
 
     /// Stores the contract's code in the in-memory lookup table.
     /// Returns an identifier of the stored contract code.
-    fn store_wasm_code(&mut self, creator: Addr, code: WasmContract) -> u64 {
-        let code_id = self.code_base.len() + 1 + LOCAL_WASM_CODE_OFFSET;
-        self.code_base.insert(code_id, code);
+    fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
+        let code_id = self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET;
+        let code = WasmContract::Local(LocalWasmContract {
+            module: create_module(&code).unwrap(),
+            code,
+        });
+
+        self.code_base.borrow_mut().insert(code_id, code);
         let checksum = self.checksum_generator.checksum(&creator, code_id as u64);
         self.code_data.insert(
             code_id,
@@ -346,15 +356,28 @@ where
         'a: 'b,
     {
         let code_data = self.code_data(code_id)?;
-        let code = self.code_base.get(&code_data.code_base_id);
+        let code = self
+            .code_base
+            .borrow()
+            .get(&code_data.code_base_id)
+            .cloned();
         if let Some(code) = code {
-            Ok(ContractBox::Borrowed(code))
+            Ok(ContractBox::Owned(Box::new(code)))
         } else if let Some(&rust_code) = self.rust_codes.get(&code_data.code_base_id) {
             Ok(ContractBox::Borrowed(unsafe {
                 rust_code.as_ref().unwrap()
             }))
         } else {
-            let wasm_contract = WasmContract::new_distant_code_id(code_id);
+            // We fetch the code and save the corresponding module in memory
+            let wasm_contract =
+                WasmContract::new_distant_code_id(code_id, self.remote.clone().unwrap());
+
+            // We save it in memory
+            self.code_base
+                .borrow_mut()
+                .insert(code_id as usize, wasm_contract.clone());
+
+            // And return a Owned reference
             Ok(ContractBox::Owned(Box::new(wasm_contract)))
         }
     }
@@ -531,13 +554,9 @@ where
         if let Some(local_key) = local_key {
             local_key.into()
         } else {
-            WasmRemoteQuerier::raw_query(
-                self.remote.clone().unwrap(),
-                address.to_string(),
-                key.into(),
-            )
-            .unwrap_or_default()
-            .into()
+            WasmRemoteQuerier::raw_query(self.remote.clone().unwrap(), &address, key.into())
+                .unwrap_or_default()
+                .into()
         }
     }
 
@@ -657,7 +676,6 @@ where
             } => self.process_wasm_msg_instantiate(
                 api, storage, router, block, sender, admin, code_id, msg, funds, label, None,
             ),
-            #[cfg(feature = "cosmwasm_1_2")]
             WasmMsg::Instantiate2 {
                 admin,
                 code_id,
@@ -832,10 +850,16 @@ where
             if matches!(reply_on, ReplyOn::Always | ReplyOn::Success) {
                 let reply = Reply {
                     id,
-                    result: SubMsgResult::Ok(SubMsgResponse {
-                        events: r.events.clone(),
-                        data: r.data,
-                    }),
+                    result: SubMsgResult::Ok(
+                        #[allow(deprecated)]
+                        SubMsgResponse {
+                            events: r.events.clone(),
+                            data: r.data,
+                            msg_responses: vec![],
+                        },
+                    ),
+                    payload: Default::default(),
+                    gas_used: 0,
                 };
                 // do reply and combine it with the original response
                 let reply_res = self.reply(api, router, storage, block, contract, reply)?;
@@ -854,6 +878,8 @@ where
                 let reply = Reply {
                     id,
                     result: SubMsgResult::Err(format!("{:?}", e)),
+                    payload: Default::default(),
+                    gas_used: 0,
                 };
                 self.reply(api, router, storage, block, contract, reply)
             } else {
