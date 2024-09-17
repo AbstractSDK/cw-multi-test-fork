@@ -434,46 +434,7 @@ where
         let storage = ReadonlyPrefixedStorage::multilevel(storage, &[NAMESPACE_WASM, &namespace]);
         Box::new(storage)
     }
-
-    fn verify_attributes(attributes: &[Attribute]) -> AnyResult<()> {
-        for attr in attributes {
-            let key = attr.key.trim();
-            let val = attr.value.trim();
-
-            if key.is_empty() {
-                bail!(Error::empty_attribute_key(val));
-            }
-
-            if val.is_empty() {
-                bail!(Error::empty_attribute_value(key));
-            }
-
-            if key.starts_with('_') {
-                bail!(Error::reserved_attribute_key(key));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn verify_response<T>(response: Response<T>) -> AnyResult<Response<T>>
-    where
-        T: Clone + Debug + PartialEq + JsonSchema,
-    {
-        Self::verify_attributes(&response.attributes)?;
-
-        for event in &response.events {
-            Self::verify_attributes(&event.attributes)?;
-            let ty = event.ty.trim();
-            if ty.len() < 2 {
-                bail!(Error::event_type_too_short(ty));
-            }
-        }
-
-        Ok(response)
-    }
 }
-
 impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC>
 where
     ExecC: CustomMsg + DeserializeOwned + 'static,
@@ -516,6 +477,43 @@ where
         self
     }
 
+    /// Validates all attributes.
+    ///
+    /// In `wasmd`, before version v0.45.0 empty attribute values were not allowed.
+    /// Since `wasmd` v0.45.0 empty attribute values are allowed,
+    /// so the value is not validated anymore.
+    fn verify_attributes(attributes: &[Attribute]) -> AnyResult<()> {
+        for attr in attributes {
+            let key = attr.key.trim();
+            let val = attr.value.trim();
+            if key.is_empty() {
+                bail!(Error::empty_attribute_key(val));
+            }
+            if key.starts_with('_') {
+                bail!(Error::reserved_attribute_key(key));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_response<T>(response: Response<T>) -> AnyResult<Response<T>>
+    where
+        T: CustomMsg,
+    {
+        Self::verify_attributes(&response.attributes)?;
+
+        for event in &response.events {
+            Self::verify_attributes(&event.attributes)?;
+            let ty = event.ty.trim();
+            if ty.len() < 2 {
+                bail!(Error::event_type_too_short(ty));
+            }
+        }
+
+        Ok(response)
+    }
+
+    /// Executes the contract's `query` entry-point.
     pub fn query_smart(
         &self,
         address: Addr,

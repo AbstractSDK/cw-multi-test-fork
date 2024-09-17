@@ -6,8 +6,7 @@ use std::{
 use schemars::JsonSchema;
 
 use cosmwasm_std::{
-    from_json, Binary, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env, MessageInfo,
-    QuerierWrapper, Reply, Response, StdError,
+    from_json, Binary, Checksum, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env, MessageInfo, QuerierWrapper, Reply, Response, StdError
 };
 
 use anyhow::Result as AnyResult;
@@ -76,6 +75,11 @@ where
         msg: Vec<u8>,
         fork_state: ForkState<T, Q>,
     ) -> AnyResult<Response<T>>;
+
+    /// Returns the provided checksum of the contract's Wasm blob.
+    fn checksum(&self) -> Option<Checksum> {
+        None
+    }
 }
 
 type ContractFn<T, C, E, Q> =
@@ -127,6 +131,7 @@ pub struct ContractWrapper<
     sudo_fn: Option<PermissionedClosure<T4, C, E4, Q>>,
     reply_fn: Option<ReplyClosure<C, E5, Q>>,
     migrate_fn: Option<PermissionedClosure<T6, C, E6, Q>>,
+    checksum: Option<Checksum>,
 }
 
 impl<T1, T2, T3, E1, E2, E3, C, Q> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q>
@@ -152,6 +157,7 @@ where
             sudo_fn: None,
             reply_fn: None,
             migrate_fn: None,
+            checksum: None,
         }
     }
 }
@@ -188,6 +194,7 @@ where
             sudo_fn: Some(sudo_fn),
             reply_fn: self.reply_fn,
             migrate_fn: self.migrate_fn,
+            checksum: None,
         }
     }
 
@@ -205,6 +212,7 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: Some(reply_fn),
             migrate_fn: self.migrate_fn,
+            checksum: None,
         }
     }
 
@@ -223,7 +231,13 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: self.reply_fn,
             migrate_fn: Some(migrate_fn),
+            checksum: None,
         }
+    }
+    /// Populates [ContractWrapper] with the provided checksum of the contract's Wasm blob.
+    pub fn with_checksum(mut self, checksum: Checksum) -> Self {
+        self.checksum = Some(checksum);
+        self
     }
 }
 
@@ -388,6 +402,11 @@ where
             Some(migrate) => migrate(deps, env, msg).map_err(|err| anyhow!(err)),
             None => bail!("migrate not implemented for contract"),
         }
+    }
+
+    /// Returns the provided checksum of the contract's Wasm blob.
+    fn checksum(&self) -> Option<Checksum> {
+        self.checksum
     }
 }
 

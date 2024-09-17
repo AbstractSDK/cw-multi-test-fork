@@ -65,7 +65,7 @@ file-lock = "2.1"
 [dev-dependencies]
 hex = "0.4.3"
 hex-literal = "0.4.1"
-once_cell = "1.18.0"
+once_cell = "1.19.0"
 
 # General
 env_logger = "0.10.0"
