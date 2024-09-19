@@ -2,8 +2,8 @@
 
 use crate::error::{anyhow, bail, AnyError, AnyResult};
 use cosmwasm_std::{
-    from_json, Binary, CosmosMsg, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env, MessageInfo,
-    QuerierWrapper, Reply, Response, SubMsg,
+    from_json, Binary, Checksum, CosmosMsg, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env,
+    MessageInfo, QuerierWrapper, Reply, Response, SubMsg,
 };
 use cosmwasm_std::{
     IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg, IbcChannelOpenMsg,
@@ -38,6 +38,11 @@ where
 
     /// Evaluates contract's `migrate` entry-point.
     fn migrate(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Response<C>>;
+
+    /// Returns the provided checksum of the contract's Wasm blob.
+    fn checksum(&self) -> Option<Checksum> {
+        None
+    }
 
     /// Executes the contract ibc_channel_open endpoint
     #[allow(unused)]
@@ -255,6 +260,7 @@ pub struct ContractWrapper<
     sudo_fn: Option<PermissionedClosure<T4, C, E4, Q>>,
     reply_fn: Option<ReplyClosure<C, E5, Q>>,
     migrate_fn: Option<PermissionedClosure<T6, C, E6, Q>>,
+    checksum: Option<Checksum>,
 
     channel_open_fn: Option<IbcClosure<IbcChannelOpenMsg, IbcChannelOpenResponse, E7, Q>>,
     channel_connect_fn: Option<IbcClosure<IbcChannelConnectMsg, IbcBasicResponse<C>, E8, Q>>,
@@ -289,6 +295,7 @@ where
             sudo_fn: None,
             reply_fn: None,
             migrate_fn: None,
+            checksum: None,
 
             channel_open_fn: None,
             channel_connect_fn: None,
@@ -314,6 +321,7 @@ where
             sudo_fn: None,
             reply_fn: None,
             migrate_fn: None,
+            checksum: None,
 
             channel_open_fn: None,
             channel_connect_fn: None,
@@ -360,6 +368,7 @@ where
             sudo_fn: Some(Box::new(sudo_fn)),
             reply_fn: self.reply_fn,
             migrate_fn: self.migrate_fn,
+            checksum: None,
 
             channel_open_fn: self.channel_open_fn,
             channel_connect_fn: self.channel_connect_fn,
@@ -387,6 +396,7 @@ where
             sudo_fn: Some(customize_permissioned_fn(sudo_fn)),
             reply_fn: self.reply_fn,
             migrate_fn: self.migrate_fn,
+            checksum: None,
 
             channel_open_fn: self.channel_open_fn,
             channel_connect_fn: self.channel_connect_fn,
@@ -413,6 +423,7 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: Some(Box::new(reply_fn)),
             migrate_fn: self.migrate_fn,
+            checksum: None,
 
             channel_open_fn: self.channel_open_fn,
             channel_connect_fn: self.channel_connect_fn,
@@ -439,6 +450,7 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: Some(customize_permissioned_fn(reply_fn)),
             migrate_fn: self.migrate_fn,
+            checksum: None,
 
             channel_open_fn: self.channel_open_fn,
             channel_connect_fn: self.channel_connect_fn,
@@ -466,6 +478,7 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: self.reply_fn,
             migrate_fn: Some(Box::new(migrate_fn)),
+            checksum: None,
 
             channel_open_fn: self.channel_open_fn,
             channel_connect_fn: self.channel_connect_fn,
@@ -493,6 +506,7 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: self.reply_fn,
             migrate_fn: Some(customize_permissioned_fn(migrate_fn)),
+            checksum: None,
 
             channel_open_fn: self.channel_open_fn,
             channel_connect_fn: self.channel_connect_fn,
@@ -502,6 +516,12 @@ where
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
         }
+    }
+
+    /// Populates [ContractWrapper] with the provided checksum of the contract's Wasm blob.
+    pub fn with_checksum(mut self, checksum: Checksum) -> Self {
+        self.checksum = Some(checksum);
+        self
     }
 
     /// Adding IBC endpoint capabilities
@@ -550,6 +570,7 @@ where
             sudo_fn: self.sudo_fn,
             reply_fn: self.reply_fn,
             migrate_fn: self.migrate_fn,
+            checksum: None,
 
             channel_open_fn: Some(Box::new(channel_open_fn)),
             channel_connect_fn: Some(Box::new(channel_connect_fn)),
@@ -658,9 +679,12 @@ where
         msg: match msg.msg {
             CosmosMsg::Wasm(wasm) => CosmosMsg::Wasm(wasm),
             CosmosMsg::Bank(bank) => CosmosMsg::Bank(bank),
+            #[cfg(feature = "staking")]
             CosmosMsg::Staking(staking) => CosmosMsg::Staking(staking),
+            #[cfg(feature = "staking")]
             CosmosMsg::Distribution(distribution) => CosmosMsg::Distribution(distribution),
             CosmosMsg::Custom(_) => unreachable!(),
+            #[cfg(feature = "stargate")]
             CosmosMsg::Ibc(ibc) => CosmosMsg::Ibc(ibc),
             #[cfg(feature = "cosmwasm_2_0")]
             CosmosMsg::Any(any) => CosmosMsg::Any(any),
@@ -764,6 +788,11 @@ where
             Some(migrate) => migrate(deps, env, msg).map_err(|err: E6| anyhow!(err)),
             None => bail!("migrate is not implemented for contract"),
         }
+    }
+
+    /// Returns the provided checksum of the contract's Wasm blob.
+    fn checksum(&self) -> Option<Checksum> {
+        self.checksum
     }
 
     fn ibc_channel_open(

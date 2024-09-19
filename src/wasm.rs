@@ -84,9 +84,7 @@ struct CodeData {
     source_id: usize,
 }
 
-/// Acts as the interface for interacting with WebAssembly (Wasm) modules.
-/// This trait is crucial for testing smart contracts written in languages that compile to WebAssembly,
-/// which is common in the Cosmos and CosmWasm ecosystems.
+/// This trait implements the interface of the Wasm module.
 pub trait Wasm<ExecC, QueryC> {
     /// Handles all `WasmMsg` messages.
     fn execute(
@@ -549,7 +547,98 @@ where
     }
 }
 
-impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC> {
+impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC>
+where
+    ExecC: CustomMsg + DeserializeOwned + 'static,
+    QueryC: CustomQuery + DeserializeOwned + 'static,
+{
+    /// Creates a wasm keeper with default settings.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cw_multi_test::{no_init, AppBuilder, WasmKeeper};
+    ///
+    /// // create wasm keeper
+    /// let wasm_keeper = WasmKeeper::new();
+    ///
+    /// // create and use the application with newly created wasm keeper
+    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Populates an existing [WasmKeeper] with custom contract address generator.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cosmwasm_std::{Addr, Api, Storage};
+    /// use cw_multi_test::{no_init, AddressGenerator, AppBuilder, WasmKeeper};
+    /// use cw_multi_test::error::AnyResult;
+    /// # use cosmwasm_std::testing::MockApi;
+    ///
+    /// struct CustomAddressGenerator;
+    ///
+    /// impl AddressGenerator for CustomAddressGenerator {
+    ///     fn contract_address(
+    ///         &self,
+    ///         api: &dyn Api,
+    ///         storage: &mut dyn Storage,
+    ///         code_id: u64,
+    ///         instance_id: u64,
+    ///     ) -> AnyResult<Addr> {
+    ///         // here implement your address generation logic
+    /// #       Ok(MockApi::default().addr_make("test_address"))
+    ///     }
+    /// }
+    ///
+    /// // populate wasm with your custom address generator
+    /// let wasm_keeper = WasmKeeper::new().with_address_generator(CustomAddressGenerator);
+    ///
+    /// // create and use the application with customized wasm keeper
+    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
+    /// ```
+    pub fn with_address_generator(
+        mut self,
+        address_generator: impl AddressGenerator + 'static,
+    ) -> Self {
+        self.address_generator = Box::new(address_generator);
+        self
+    }
+
+    /// Populates an existing [WasmKeeper] with custom checksum generator for the contract code.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cosmwasm_std::{Addr, Checksum};
+    /// use cw_multi_test::{no_init, AppBuilder, ChecksumGenerator, WasmKeeper};
+    ///
+    /// struct MyChecksumGenerator;
+    ///
+    /// impl ChecksumGenerator for MyChecksumGenerator {
+    ///     fn checksum(&self, creator: &Addr, code_id: u64) -> Checksum {
+    ///         // here implement your custom checksum generator
+    /// #       Checksum::from_hex("custom_checksum").unwrap()
+    ///     }
+    /// }
+    ///
+    /// // populate wasm keeper with your custom checksum generator
+    /// let wasm_keeper = WasmKeeper::new().with_checksum_generator(MyChecksumGenerator);
+    ///
+    /// // create and use the application with customized wasm keeper
+    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
+    /// ```
+    pub fn with_checksum_generator(
+        mut self,
+        checksum_generator: impl ChecksumGenerator + 'static,
+    ) -> Self {
+        self.checksum_generator = Box::new(checksum_generator);
+        self
+    }
+
     /// Returns a handler to code of the contract with specified code id.
     pub fn contract_code(&self, code_id: u64) -> AnyResult<&dyn Contract<ExecC, QueryC>> {
         let code_data = self.code_data(code_id)?;
@@ -644,10 +733,12 @@ impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC> {
         creator: Addr,
         code: Box<dyn Contract<ExecC, QueryC>>,
     ) -> u64 {
-        // prepare the next identifier for the contract 'source' code
+        // prepare the next identifier for the contract's code
         let source_id = self.code_base.len();
-        // calculate the checksum of the contract 'source' code based on code_id
-        let checksum = self.checksum_generator.checksum(&creator, code_id);
+        // prepare the contract's Wasm blob checksum
+        let checksum = code
+            .checksum()
+            .unwrap_or(self.checksum_generator.checksum(&creator, code_id));
         // store the 'source' code of the contract
         self.code_base.push(code);
         // store the additional code attributes like creator address and checksum
@@ -662,105 +753,12 @@ impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC> {
         code_id
     }
 
-    /// Returns the next code identifier.
+    /// Returns the next contract's code identifier.
     fn next_code_id(&self) -> Option<u64> {
         self.code_data.keys().last().unwrap_or(&0u64).checked_add(1)
     }
-}
 
-impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC>
-where
-    ExecC: CustomMsg + DeserializeOwned + 'static,
-    QueryC: CustomQuery + DeserializeOwned + 'static,
-{
-    /// Creates a wasm keeper with default settings.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cw_multi_test::{AppBuilder, no_init, WasmKeeper};
-    ///
-    /// // create wasm keeper
-    /// let wasm_keeper = WasmKeeper::new();
-    ///
-    /// // create and use the application with newly created wasm keeper
-    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
-    /// ```
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Populates an existing [WasmKeeper] with custom contract address generator.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cosmwasm_std::{Addr, Api, Storage};
-    /// use cw_multi_test::{AddressGenerator, AppBuilder, no_init, WasmKeeper};
-    /// use cw_multi_test::error::AnyResult;
-    /// # use cosmwasm_std::testing::MockApi;
-    ///
-    /// struct CustomAddressGenerator;
-    ///
-    /// impl AddressGenerator for CustomAddressGenerator {
-    ///     fn contract_address(
-    ///         &self,
-    ///         api: &dyn Api,
-    ///         storage: &mut dyn Storage,
-    ///         code_id: u64,
-    ///         instance_id: u64,
-    ///     ) -> AnyResult<Addr> {
-    ///         // here implement your address generation logic
-    /// #       Ok(MockApi::default().addr_make("test_address"))
-    ///     }
-    /// }
-    ///
-    /// // populate wasm with your custom address generator
-    /// let wasm_keeper = WasmKeeper::new().with_address_generator(CustomAddressGenerator);
-    ///
-    /// // create and use the application with customized wasm keeper
-    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
-    /// ```
-    pub fn with_address_generator(
-        mut self,
-        address_generator: impl AddressGenerator + 'static,
-    ) -> Self {
-        self.address_generator = Box::new(address_generator);
-        self
-    }
-
-    /// Populates an existing [WasmKeeper] with custom checksum generator for the contract code.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cosmwasm_std::{Addr, Checksum};
-    /// use cw_multi_test::{AppBuilder, ChecksumGenerator, no_init, WasmKeeper};
-    ///
-    /// struct MyChecksumGenerator;
-    ///
-    /// impl ChecksumGenerator for MyChecksumGenerator {
-    ///     fn checksum(&self, creator: &Addr, code_id: u64) -> Checksum {
-    ///         // here implement your custom checksum generator
-    /// #       Checksum::from_hex("custom_checksum").unwrap()
-    ///     }
-    /// }
-    ///
-    /// // populate wasm keeper with your custom checksum generator
-    /// let wasm_keeper = WasmKeeper::new().with_checksum_generator(MyChecksumGenerator);
-    ///
-    /// // create and use the application with customized wasm keeper
-    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
-    /// ```
-    pub fn with_checksum_generator(
-        mut self,
-        checksum_generator: impl ChecksumGenerator + 'static,
-    ) -> Self {
-        self.checksum_generator = Box::new(checksum_generator);
-        self
-    }
-
-    /// Executes contract's `query` entry-point.
+    /// Executes the contract's `query` entry-point.
     pub fn query_smart(
         &self,
         address: Addr,
@@ -1553,8 +1551,8 @@ mod test {
     use super::*;
     use crate::app::Router;
     use crate::bank::BankKeeper;
+    use crate::featured::staking::{DistributionKeeper, StakeKeeper};
     use crate::module::FailingModule;
-    use crate::staking::{DistributionKeeper, StakeKeeper};
     use crate::test_helpers::{caller, error, payout};
     use crate::transactions::StorageTransaction;
     use crate::{GovFailingModule, IbcFailingModule, StargateFailing};

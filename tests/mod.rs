@@ -4,10 +4,12 @@ mod test_api;
 mod test_app;
 mod test_app_builder;
 mod test_attributes;
+mod test_bank;
 mod test_contract_storage;
 mod test_ibc;
 mod test_module;
 mod test_prefixed_storage;
+#[cfg(feature = "staking")]
 mod test_staking;
 mod test_wasm;
 
@@ -68,6 +70,15 @@ mod test_contracts {
 
         pub fn contract() -> Box<dyn Contract<Empty>> {
             Box::new(ContractWrapper::new_with_empty(execute, instantiate, query))
+        }
+
+        #[cfg(feature = "cosmwasm_1_2")]
+        pub fn contract_with_checksum() -> Box<dyn Contract<Empty>> {
+            Box::new(
+                ContractWrapper::new_with_empty(execute, instantiate, query).with_checksum(
+                    cosmwasm_std::Checksum::generate(&[1, 2, 3, 4, 5, 6, 7, 8, 9]),
+                ),
+            )
         }
     }
 }
