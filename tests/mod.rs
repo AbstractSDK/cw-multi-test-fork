@@ -1,6 +1,5 @@
-extern crate abstract_cw_multi_test as cw_multi_test;
-
 #![cfg(test)]
+extern crate abstract_cw_multi_test as cw_multi_test;
 
 mod test_api;
 mod test_app;

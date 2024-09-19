@@ -31,8 +31,9 @@ pub enum RelayingResult {
     },
     /// The remote chain has received the packet and the sending chain has received an ack
     Acknowledgement { tx: AppResponse, ack: Binary },
-    /// The remote chain has received the packet and NO ack was received by the sending chain
-    None,
+    // TODO: Reactivate that enum member when doing a breaking change to cw-orch-interchain (and to this library)
+    // The remote chain has received the packet and NO ack was received by the sending chain
+    // None,
 }
 
 pub fn relay_packets_in_tx<
@@ -219,7 +220,7 @@ where
     } else {
         Ok(RelayPacketResult {
             receive_tx: receive_response,
-            result: RelayingResult::None,
+            result: unimplemented!("No ack is not handled in cw-multi-test right now"),
         })
     }
 }
