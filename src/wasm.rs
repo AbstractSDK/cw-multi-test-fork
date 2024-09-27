@@ -283,12 +283,14 @@ where
     /// Stores the contract's code in the in-memory lookup table.
     /// Returns an identifier of the stored contract code.
     fn store_code(&mut self, creator: Addr, code: Box<dyn Contract<ExecC, QueryC>>) -> u64 {
+        let code_id = self.rust_codes.len() + 1 + LOCAL_RUST_CODE_OFFSET;
+        let checksum = code
+            .checksum()
+            .unwrap_or(self.checksum_generator.checksum(&creator, code_id as u64));
         let static_ref = Box::leak(code);
 
-        let code_id = self.rust_codes.len() + 1 + LOCAL_RUST_CODE_OFFSET;
         let raw_pointer = static_ref as *mut dyn Contract<ExecC, QueryC>;
         self.rust_codes.insert(code_id, raw_pointer);
-        let checksum = self.checksum_generator.checksum(&creator, code_id as u64);
         self.code_data.insert(
             code_id,
             CodeData {
