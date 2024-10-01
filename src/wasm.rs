@@ -78,9 +78,7 @@ struct CodeData {
     source_id: usize,
 }
 
-/// Acts as the interface for interacting with WebAssembly (Wasm) modules.
-/// This trait is crucial for testing smart contracts written in languages that compile to WebAssembly,
-/// which is common in the Cosmos and CosmWasm ecosystems.
+/// This trait implements the interface of the Wasm module.
 pub trait Wasm<ExecC, QueryC> {
     /// Handles all `WasmMsg` messages.
     fn execute(
@@ -246,6 +244,7 @@ where
                 );
                 to_json_binary(&res).map_err(Into::into)
             }
+            #[cfg(feature = "cosmwasm_1_2")]
             WasmQuery::CodeInfo { code_id } => {
                 let code_data = self.code_data(code_id)?;
                 let res = cosmwasm_std::CodeInfoResponse::new(
@@ -338,92 +337,6 @@ where
     }
 }
 
-impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC> {
-    /// Returns a handler to code of the contract with specified code id.
-    pub fn contract_code(&self, code_id: u64) -> AnyResult<&dyn Contract<ExecC, QueryC>> {
-        let code_data = self.code_data(code_id)?;
-        Ok(self.code_base[code_data.source_id].borrow())
-    }
-
-    /// Returns code data of the contract with specified code id.
-    fn code_data(&self, code_id: u64) -> AnyResult<&CodeData> {
-        if code_id < 1 {
-            bail!(Error::invalid_code_id());
-        }
-        Ok(self
-            .code_data
-            .get(&code_id)
-            .ok_or_else(|| Error::unregistered_code_id(code_id))?)
-    }
-
-    fn verify_attributes(attributes: &[Attribute]) -> AnyResult<()> {
-        for attr in attributes {
-            let key = attr.key.trim();
-            let val = attr.value.trim();
-
-            if key.is_empty() {
-                bail!(Error::empty_attribute_key(val));
-            }
-
-            if val.is_empty() {
-                bail!(Error::empty_attribute_value(key));
-            }
-
-            if key.starts_with('_') {
-                bail!(Error::reserved_attribute_key(key));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn verify_response<T>(response: Response<T>) -> AnyResult<Response<T>>
-    where
-        T: CustomMsg,
-    {
-        Self::verify_attributes(&response.attributes)?;
-
-        for event in &response.events {
-            Self::verify_attributes(&event.attributes)?;
-            let ty = event.ty.trim();
-            if ty.len() < 2 {
-                bail!(Error::event_type_too_short(ty));
-            }
-        }
-
-        Ok(response)
-    }
-
-    fn save_code(
-        &mut self,
-        code_id: u64,
-        creator: Addr,
-        code: Box<dyn Contract<ExecC, QueryC>>,
-    ) -> u64 {
-        // prepare the next identifier for the contract 'source' code
-        let source_id = self.code_base.len();
-        // calculate the checksum of the contract 'source' code based on code_id
-        let checksum = self.checksum_generator.checksum(&creator, code_id);
-        // store the 'source' code of the contract
-        self.code_base.push(code);
-        // store the additional code attributes like creator address and checksum
-        self.code_data.insert(
-            code_id,
-            CodeData {
-                creator,
-                checksum,
-                source_id,
-            },
-        );
-        code_id
-    }
-
-    /// Returns the next code identifier.
-    fn next_code_id(&self) -> Option<u64> {
-        self.code_data.keys().last().unwrap_or(&0u64).checked_add(1)
-    }
-}
-
 impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC>
 where
     ExecC: CustomMsg + DeserializeOwned + 'static,
@@ -434,7 +347,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use cw_multi_test::{AppBuilder, no_init, WasmKeeper};
+    /// use cw_multi_test::{no_init, AppBuilder, WasmKeeper};
     ///
     /// // create wasm keeper
     /// let wasm_keeper = WasmKeeper::new();
@@ -452,7 +365,7 @@ where
     ///
     /// ```
     /// use cosmwasm_std::{Addr, Api, Storage};
-    /// use cw_multi_test::{AddressGenerator, AppBuilder, no_init, WasmKeeper};
+    /// use cw_multi_test::{no_init, AddressGenerator, AppBuilder, WasmKeeper};
     /// use cw_multi_test::error::AnyResult;
     /// # use cosmwasm_std::testing::MockApi;
     ///
@@ -491,7 +404,7 @@ where
     ///
     /// ```
     /// use cosmwasm_std::{Addr, Checksum};
-    /// use cw_multi_test::{AppBuilder, ChecksumGenerator, no_init, WasmKeeper};
+    /// use cw_multi_test::{no_init, AppBuilder, ChecksumGenerator, WasmKeeper};
     ///
     /// struct MyChecksumGenerator;
     ///
@@ -516,7 +429,91 @@ where
         self
     }
 
-    /// Executes contract's `query` entry-point.
+    /// Returns a handler to code of the contract with specified code id.
+    pub fn contract_code(&self, code_id: u64) -> AnyResult<&dyn Contract<ExecC, QueryC>> {
+        let code_data = self.code_data(code_id)?;
+        Ok(self.code_base[code_data.source_id].borrow())
+    }
+
+    /// Returns code data of the contract with specified code id.
+    fn code_data(&self, code_id: u64) -> AnyResult<&CodeData> {
+        if code_id < 1 {
+            bail!(Error::invalid_code_id());
+        }
+        Ok(self
+            .code_data
+            .get(&code_id)
+            .ok_or_else(|| Error::unregistered_code_id(code_id))?)
+    }
+
+    /// Validates all attributes.
+    ///
+    /// In `wasmd`, before version v0.45.0 empty attribute values were not allowed.
+    /// Since `wasmd` v0.45.0 empty attribute values are allowed,
+    /// so the value is not validated anymore.
+    fn verify_attributes(attributes: &[Attribute]) -> AnyResult<()> {
+        for attr in attributes {
+            let key = attr.key.trim();
+            let val = attr.value.trim();
+            if key.is_empty() {
+                bail!(Error::empty_attribute_key(val));
+            }
+            if key.starts_with('_') {
+                bail!(Error::reserved_attribute_key(key));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_response<T>(response: Response<T>) -> AnyResult<Response<T>>
+    where
+        T: CustomMsg,
+    {
+        Self::verify_attributes(&response.attributes)?;
+
+        for event in &response.events {
+            Self::verify_attributes(&event.attributes)?;
+            let ty = event.ty.trim();
+            if ty.len() < 2 {
+                bail!(Error::event_type_too_short(ty));
+            }
+        }
+
+        Ok(response)
+    }
+
+    fn save_code(
+        &mut self,
+        code_id: u64,
+        creator: Addr,
+        code: Box<dyn Contract<ExecC, QueryC>>,
+    ) -> u64 {
+        // prepare the next identifier for the contract's code
+        let source_id = self.code_base.len();
+        // prepare the contract's Wasm blob checksum
+        let checksum = code
+            .checksum()
+            .unwrap_or(self.checksum_generator.checksum(&creator, code_id));
+        // store the 'source' code of the contract
+        self.code_base.push(code);
+        // store the additional code attributes like creator address and checksum
+        self.code_data.insert(
+            code_id,
+            CodeData {
+                creator,
+                checksum,
+                source_id,
+            },
+        );
+        code_id
+    }
+
+    /// Returns the next contract's code identifier.
+    fn next_code_id(&self) -> Option<u64> {
+        self.code_data.keys().last().unwrap_or(&0u64).checked_add(1)
+    }
+
+    /// Executes the contract's `query` entry-point.
     pub fn query_smart(
         &self,
         address: Addr,
@@ -655,6 +652,7 @@ where
             } => self.process_wasm_msg_instantiate(
                 api, storage, router, block, sender, admin, code_id, msg, funds, label, None,
             ),
+            #[cfg(feature = "cosmwasm_1_2")]
             WasmMsg::Instantiate2 {
                 admin,
                 code_id,
@@ -1254,15 +1252,16 @@ mod test {
     use super::*;
     use crate::app::Router;
     use crate::bank::BankKeeper;
+    use crate::featured::staking::{DistributionKeeper, StakeKeeper};
     use crate::module::FailingModule;
-    use crate::staking::{DistributionKeeper, StakeKeeper};
     use crate::test_helpers::{caller, error, payout};
     use crate::transactions::StorageTransaction;
     use crate::{GovFailingModule, IbcFailingModule, StargateFailing};
-    use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
+    use cosmwasm_std::testing::{message_info, mock_env, MockApi, MockQuerier, MockStorage};
+    #[cfg(feature = "cosmwasm_1_2")]
+    use cosmwasm_std::CodeInfoResponse;
     use cosmwasm_std::{
-        coin, from_json, to_json_vec, CanonicalAddr, CodeInfoResponse, CosmosMsg, Empty, HexBinary,
-        StdError,
+        coin, from_json, to_json_vec, CanonicalAddr, CosmosMsg, Empty, HexBinary, StdError,
     };
 
     /// Type alias for default build `Router` to make its reference in typical scenario
@@ -1357,7 +1356,7 @@ mod test {
 
         let err = transactional(&mut wasm_storage, |cache, _| {
             // now, we call this contract and see the error message from the contract
-            let info = mock_info(user_addr.as_str(), &[]);
+            let info = message_info(&user_addr, &[]);
             wasm_keeper.call_instantiate(
                 contract_addr.clone(),
                 &api,
@@ -1378,7 +1377,7 @@ mod test {
 
         let err = transactional(&mut wasm_storage, |cache, _| {
             // and the error for calling an unregistered contract
-            let info = mock_info(user_addr.as_str(), &[]);
+            let info = message_info(&user_addr, &[]);
             wasm_keeper.call_instantiate(
                 unregistered_addr,
                 &api,
@@ -1438,6 +1437,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "cosmwasm_1_2")]
     fn query_code_info() {
         let api = MockApi::default();
         let wasm_storage = MockStorage::new();
@@ -1457,6 +1457,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "cosmwasm_1_2")]
     fn different_contracts_must_have_different_checksum() {
         let api = MockApi::default();
         let creator_addr = api.addr_make("creator");
@@ -1488,6 +1489,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "cosmwasm_1_2")]
     fn querying_invalid_code_info_must_fail() {
         let api = MockApi::default();
         let wasm_storage = MockStorage::new();
@@ -1522,7 +1524,7 @@ mod test {
                 &api,
                 &mut wasm_storage,
                 code_id,
-                user_addr,
+                user_addr.clone(),
                 admin_addr,
                 "label".to_owned(),
                 1000,
@@ -1542,7 +1544,7 @@ mod test {
                 &mut wasm_storage,
                 &mock_router(),
                 &block,
-                mock_info("foobar", &[]),
+                message_info(&user_addr, &[]),
                 to_json_vec(&msg).unwrap(),
             )
             .unwrap();
@@ -1592,7 +1594,7 @@ mod test {
         let payout = coin(100, "TGD");
 
         // init the contract
-        let info = mock_info(user_addr.as_str(), &[]);
+        let info = message_info(&user_addr, &[]);
         let init_msg = to_json_vec(&payout::InstantiateMessage {
             payout: payout.clone(),
         })
@@ -1611,7 +1613,7 @@ mod test {
         assert_eq!(0, res.messages.len());
 
         // execute the contract
-        let info = mock_info(user_addr.as_str(), &[]);
+        let info = message_info(&user_addr, &[]);
         let res = wasm_keeper
             .call_execute(
                 &api,
@@ -1652,7 +1654,8 @@ mod test {
         payout: &Coin,
     ) {
         let api = MockApi::default();
-        let info = mock_info("silly", &[]);
+        let user_addr = api.addr_make("silly");
+        let info = message_info(&user_addr, &[]);
         let res = router
             .call_execute(
                 &api,
@@ -1667,7 +1670,7 @@ mod test {
         assert_eq!(1, res.messages.len());
         match &res.messages[0].msg {
             CosmosMsg::Bank(BankMsg::Send { to_address, amount }) => {
-                assert_eq!(to_address.as_str(), "silly");
+                assert_eq!(to_address.as_str(), user_addr.as_str());
                 assert_eq!(amount.as_slice(), &[payout.clone()]);
             }
             m => panic!("Unexpected message {:?}", m),
@@ -1686,6 +1689,7 @@ mod test {
         // prepare user addresses
         let creator_addr = api.addr_make("creator");
         let user_addr = api.addr_make("foobar");
+        let user_addr_1 = api.addr_make("johnny");
 
         let mut wasm_keeper = wasm_keeper();
         let block = mock_env().block;
@@ -1709,7 +1713,7 @@ mod test {
                     None,
                 )
                 .unwrap();
-            let info = mock_info(user_addr.as_str(), &[]);
+            let info = message_info(&user_addr, &[]);
             let init_msg = to_json_vec(&payout::InstantiateMessage {
                 payout: payout1.clone(),
             })
@@ -1750,7 +1754,7 @@ mod test {
                     None,
                 )
                 .unwrap();
-            let info = mock_info(user_addr.as_str(), &[]);
+            let info = message_info(&user_addr, &[]);
             let init_msg = to_json_vec(&payout::InstantiateMessage {
                 payout: payout2.clone(),
             })
@@ -1786,7 +1790,7 @@ mod test {
                         None,
                     )
                     .unwrap();
-                let info = mock_info("johnny", &[]);
+                let info = message_info(&user_addr_1, &[]);
                 let init_msg = to_json_vec(&payout::InstantiateMessage {
                     payout: payout3.clone(),
                 })
@@ -1882,7 +1886,7 @@ mod test {
             .unwrap();
 
         // init the contract
-        let info = mock_info("admin", &[]);
+        let info = message_info(&admin, &[]);
         let init_msg = to_json_vec(&Empty {}).unwrap();
         let res = wasm_keeper
             .call_instantiate(

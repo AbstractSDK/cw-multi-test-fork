@@ -3,31 +3,34 @@
 mod test_api;
 mod test_app;
 mod test_app_builder;
+mod test_attributes;
+mod test_bank;
 mod test_contract_storage;
 mod test_module;
 mod test_prefixed_storage;
+#[cfg(feature = "staking")]
+mod test_staking;
 mod test_wasm;
 
 mod test_contracts {
 
     pub mod counter {
+        use cosmwasm_schema::cw_serde;
         use cosmwasm_std::{
             to_json_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Response, StdError,
             WasmMsg,
         };
         use cw_multi_test::{Contract, ContractWrapper};
         use cw_storage_plus::Item;
-        use serde::{Deserialize, Serialize};
 
         const COUNTER: Item<u64> = Item::new("counter");
 
-        #[derive(Debug, Clone, Serialize, Deserialize)]
-        #[serde(rename_all = "snake_case")]
+        #[cw_serde]
         pub enum CounterQueryMsg {
             Counter {},
         }
 
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[cw_serde]
         pub struct CounterResponseMsg {
             pub value: u64,
         }
@@ -65,6 +68,15 @@ mod test_contracts {
 
         pub fn contract() -> Box<dyn Contract<Empty>> {
             Box::new(ContractWrapper::new_with_empty(execute, instantiate, query))
+        }
+
+        #[cfg(feature = "cosmwasm_1_2")]
+        pub fn contract_with_checksum() -> Box<dyn Contract<Empty>> {
+            Box::new(
+                ContractWrapper::new_with_empty(execute, instantiate, query).with_checksum(
+                    cosmwasm_std::Checksum::generate(&[1, 2, 3, 4, 5, 6, 7, 8, 9]),
+                ),
+            )
         }
     }
 }

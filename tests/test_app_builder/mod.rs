@@ -8,15 +8,19 @@ use std::marker::PhantomData;
 mod test_with_api;
 mod test_with_bank;
 mod test_with_block;
+#[cfg(feature = "staking")]
 mod test_with_distribution;
+#[cfg(feature = "stargate")]
 mod test_with_gov;
+#[cfg(feature = "stargate")]
 mod test_with_ibc;
+#[cfg(feature = "staking")]
 mod test_with_staking;
+#[cfg(feature = "stargate")]
 mod test_with_stargate;
 mod test_with_storage;
+#[cfg(feature = "cosmwasm_1_2")]
 mod test_with_wasm;
-
-const NO_MESSAGE: &str = "";
 
 struct MyKeeper<ExecT, QueryT, SudoT>(
     PhantomData<(ExecT, QueryT, SudoT)>,
@@ -57,6 +61,17 @@ where
         bail!(self.1);
     }
 
+    fn query(
+        &self,
+        _api: &dyn Api,
+        _storage: &dyn Storage,
+        _querier: &dyn Querier,
+        _block: &BlockInfo,
+        _request: Self::QueryT,
+    ) -> AnyResult<Binary> {
+        bail!(self.2);
+    }
+
     fn sudo<ExecC, QueryC>(
         &self,
         _api: &dyn Api,
@@ -70,16 +85,5 @@ where
         QueryC: CustomQuery + DeserializeOwned + 'static,
     {
         bail!(self.3);
-    }
-
-    fn query(
-        &self,
-        _api: &dyn Api,
-        _storage: &dyn Storage,
-        _querier: &dyn Querier,
-        _block: &BlockInfo,
-        _request: Self::QueryT,
-    ) -> AnyResult<Binary> {
-        bail!(self.2);
     }
 }

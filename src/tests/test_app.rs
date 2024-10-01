@@ -1,12 +1,13 @@
 use crate::custom_handler::CachingCustomHandler;
 use crate::error::{bail, AnyResult};
+use crate::featured::staking::{Distribution, Staking};
 use crate::test_helpers::echo::EXECUTE_REPLY_BASE_ID;
 use crate::test_helpers::{caller, echo, error, hackatom, payout, reflect, CustomHelperMsg};
 use crate::transactions::{transactional, StorageTransaction};
 use crate::wasm::ContractData;
 use crate::{
-    custom_app, next_block, no_init, App, AppResponse, Bank, CosmosRouter, Distribution, Executor,
-    Module, Router, Staking, Wasm, WasmSudo,
+    custom_app, next_block, no_init, App, AppResponse, Bank, CosmosRouter, Executor, Module,
+    Router, Wasm, WasmSudo,
 };
 use crate::{AppBuilder, IntoAddr};
 use cosmwasm_std::testing::{mock_env, MockQuerier};
@@ -169,6 +170,7 @@ fn multi_level_bank_cache() {
 }
 
 #[test]
+#[cfg(feature = "cosmwasm_1_2")]
 fn duplicate_contract_code() {
     // set up the multi-test application
     let mut app = App::default();
@@ -1464,18 +1466,17 @@ mod response_validation {
     }
 
     #[test]
-    fn empty_attribute_value() {
+    fn empty_attribute_value_should_work() {
         let mut app = App::default();
 
         let owner = app.api().addr_make("owner");
-
         let code_id = app.store_code(echo::contract());
 
         let contract = app
             .instantiate_contract(code_id, owner.clone(), &Empty {}, &[], "Echo", None)
             .unwrap();
 
-        let err = app
+        assert!(app
             .execute_contract(
                 owner,
                 contract,
@@ -1489,9 +1490,7 @@ mod response_validation {
                 },
                 &[],
             )
-            .unwrap_err();
-
-        assert_eq!(Error::empty_attribute_value("key"), err.downcast().unwrap());
+            .is_ok());
     }
 
     #[test]
@@ -1525,18 +1524,17 @@ mod response_validation {
     }
 
     #[test]
-    fn empty_event_attribute_value() {
+    fn empty_event_attribute_value_should_work() {
         let mut app = App::default();
 
         let owner = app.api().addr_make("owner");
-
         let code_id = app.store_code(echo::contract());
 
         let contract = app
             .instantiate_contract(code_id, owner.clone(), &Empty {}, &[], "Echo", None)
             .unwrap();
 
-        let err = app
+        assert!(app
             .execute_contract(
                 owner,
                 contract,
@@ -1549,9 +1547,7 @@ mod response_validation {
                 },
                 &[],
             )
-            .unwrap_err();
-
-        assert_eq!(Error::empty_attribute_value("key"), err.downcast().unwrap());
+            .is_ok());
     }
 
     #[test]
@@ -1586,6 +1582,7 @@ mod response_validation {
 mod contract_instantiation {
 
     #[test]
+    #[cfg(feature = "cosmwasm_1_2")]
     fn instantiate2_works() {
         use super::*;
 
@@ -1626,6 +1623,7 @@ mod contract_instantiation {
 mod wasm_queries {
 
     #[test]
+    #[cfg(feature = "cosmwasm_1_2")]
     fn query_existing_code_info() {
         use super::*;
         let mut app = App::default();
@@ -1638,6 +1636,7 @@ mod wasm_queries {
     }
 
     #[test]
+    #[cfg(feature = "cosmwasm_1_2")]
     fn query_non_existing_code_info() {
         use super::*;
         let app = App::default();
@@ -1657,7 +1656,7 @@ mod custom_messages {
 
     #[test]
     fn triggering_custom_msg() {
-        let custom_handler = CachingCustomHandler::<CustomHelperMsg, Empty>::new();
+        let custom_handler = CachingCustomHandler::<CustomHelperMsg, Empty>::default();
         let custom_handler_state = custom_handler.state();
 
         let mut app = AppBuilder::new_custom()

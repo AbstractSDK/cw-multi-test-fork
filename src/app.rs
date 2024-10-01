@@ -2,13 +2,15 @@ use crate::bank::{Bank, BankKeeper, BankSudo};
 use crate::contracts::Contract;
 use crate::error::{bail, AnyResult};
 use crate::executor::{AppResponse, Executor};
+use crate::featured::staking::{
+    Distribution, DistributionKeeper, StakeKeeper, Staking, StakingSudo,
+};
 use crate::gov::Gov;
 use crate::ibc::Ibc;
 use crate::module::{FailingModule, Module};
 use crate::prefixed_storage::{
     prefixed, prefixed_multilevel, prefixed_multilevel_read, prefixed_read,
 };
-use crate::staking::{Distribution, DistributionKeeper, StakeKeeper, Staking, StakingSudo};
 use crate::transactions::transactional;
 use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
 use crate::{AppBuilder, GovFailingModule, IbcFailingModule, Stargate, StargateFailing};
@@ -67,9 +69,9 @@ pub struct App<
 }
 
 /// No-op application initialization function.
-pub fn no_init<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>(
+pub fn no_init<ApiT, BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>(
     router: &mut Router<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>,
-    api: &dyn Api,
+    api: &ApiT,
     storage: &mut dyn Storage,
 ) {
     let _ = (router, api, storage);
@@ -96,7 +98,7 @@ impl BasicApp {
                 GovFailingModule,
                 StargateFailing,
             >,
-            &dyn Api,
+            &MockApi,
             &mut dyn Storage,
         ),
     {
@@ -121,7 +123,7 @@ where
             GovFailingModule,
             StargateFailing,
         >,
-        &dyn Api,
+        &MockApi,
         &mut dyn Storage,
     ),
 {
@@ -216,7 +218,7 @@ where
     where
         F: FnOnce(
             &mut Router<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>,
-            &dyn Api,
+            &ApiT,
             &mut dyn Storage,
         ) -> T,
     {
@@ -228,7 +230,7 @@ where
     where
         F: FnOnce(
             &Router<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>,
-            &dyn Api,
+            &ApiT,
             &dyn Storage,
         ) -> T,
     {
@@ -405,23 +407,23 @@ where
 {
     /// Sets the initial block properties.
     pub fn set_block(&mut self, block: BlockInfo) {
+        self.block = block;
         self.router
             .staking
             .process_queue(&self.api, &mut self.storage, &self.router, &self.block)
             .unwrap();
-        self.block = block;
     }
 
     /// Updates the current block applying the specified closure, usually [next_block].
     pub fn update_block<F: Fn(&mut BlockInfo)>(&mut self, action: F) {
+        action(&mut self.block);
         self.router
             .staking
             .process_queue(&self.api, &mut self.storage, &self.router, &self.block)
             .unwrap();
-        action(&mut self.block);
     }
 
-    /// Returns a copy of the current block_info
+    /// Returns a copy of the current block info.
     pub fn block_info(&self) -> BlockInfo {
         self.block.clone()
     }
@@ -653,16 +655,22 @@ where
             CosmosMsg::Wasm(msg) => self.wasm.execute(api, storage, self, block, sender, msg),
             CosmosMsg::Bank(msg) => self.bank.execute(api, storage, self, block, sender, msg),
             CosmosMsg::Custom(msg) => self.custom.execute(api, storage, self, block, sender, msg),
+            #[cfg(feature = "staking")]
             CosmosMsg::Staking(msg) => self.staking.execute(api, storage, self, block, sender, msg),
+            #[cfg(feature = "staking")]
             CosmosMsg::Distribution(msg) => self
                 .distribution
                 .execute(api, storage, self, block, sender, msg),
+            #[cfg(feature = "stargate")]
             CosmosMsg::Ibc(msg) => self.ibc.execute(api, storage, self, block, sender, msg),
+            #[cfg(feature = "stargate")]
             CosmosMsg::Gov(msg) => self.gov.execute(api, storage, self, block, sender, msg),
             #[allow(deprecated)]
+            #[cfg(feature = "stargate")]
             CosmosMsg::Stargate { type_url, value } => self
                 .stargate
                 .execute_stargate(api, storage, self, block, sender, type_url, value),
+            #[cfg(feature = "cosmwasm_2_0")]
             CosmosMsg::Any(msg) => self
                 .stargate
                 .execute_any(api, storage, self, block, sender, msg),
@@ -685,12 +693,16 @@ where
             QueryRequest::Wasm(req) => self.wasm.query(api, storage, &querier, block, req),
             QueryRequest::Bank(req) => self.bank.query(api, storage, &querier, block, req),
             QueryRequest::Custom(req) => self.custom.query(api, storage, &querier, block, req),
+            #[cfg(feature = "staking")]
             QueryRequest::Staking(req) => self.staking.query(api, storage, &querier, block, req),
+            #[cfg(feature = "stargate")]
             QueryRequest::Ibc(req) => self.ibc.query(api, storage, &querier, block, req),
             #[allow(deprecated)]
+            #[cfg(feature = "stargate")]
             QueryRequest::Stargate { path, data } => self
                 .stargate
                 .query_stargate(api, storage, &querier, block, path, data),
+            #[cfg(feature = "cosmwasm_2_0")]
             QueryRequest::Grpc(req) => self.stargate.query_grpc(api, storage, &querier, block, req),
             _ => unimplemented!(),
         }
@@ -706,8 +718,9 @@ where
         match msg {
             SudoMsg::Wasm(msg) => self.wasm.sudo(api, storage, self, block, msg),
             SudoMsg::Bank(msg) => self.bank.sudo(api, storage, self, block, msg),
+            #[cfg(feature = "staking")]
             SudoMsg::Staking(msg) => self.staking.sudo(api, storage, self, block, msg),
-            SudoMsg::Custom(_) => unimplemented!(),
+            _ => unimplemented!(),
         }
     }
 }
