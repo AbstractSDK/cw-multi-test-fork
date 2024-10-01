@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::addons::MockApiBech32;
 use crate::prefixed_storage::get_full_contract_storage_namespace;
 use crate::queries::wasm::WasmRemoteQuerier;
 use crate::wasm_emulation::query::gas::{
@@ -8,7 +7,7 @@ use crate::wasm_emulation::query::gas::{
 };
 use crate::wasm_emulation::query::mock_querier::QueryResultWithGas;
 use crate::wasm_emulation::query::MockQuerier;
-use crate::Contract;
+use crate::{Contract, MockApiBech32};
 
 use crate::wasm_emulation::contract::WasmContract;
 use cosmwasm_std::testing::MockStorage;

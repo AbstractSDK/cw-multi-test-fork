@@ -14,7 +14,7 @@ backtrace = ["anyhow/backtrace"]
 
 [dependencies]
 anyhow = "1.0.75"
-bech32 = "0.9.1"
+bech32 = "0.11.0"
 cosmwasm-std = { version = "2.1", features = [
     "iterator",
     "staking",
@@ -29,7 +29,7 @@ prost = "0.13.0"
 schemars = "0.8.16"
 serde = "1.0.193"
 sha2 = "0.10.8"
-thiserror = "1.0.50"
+thiserror = "1.0.61"
 
 # Clone testing deps
 ## Network

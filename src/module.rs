@@ -1,16 +1,23 @@
 use crate::app::CosmosRouter;
 use crate::error::{bail, AnyResult};
 use crate::AppResponse;
-use cosmwasm_std::{Addr, Api, Binary, BlockInfo, CustomQuery, Querier, Storage};
-use schemars::JsonSchema;
+use cosmwasm_std::{Addr, Api, Binary, BlockInfo, CustomMsg, CustomQuery, Querier, Storage};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-/// Module interface.
+/// # General module
+///
+/// Provides a generic interface for modules within the test environment.
+/// It is essential for creating modular and extensible testing setups,
+/// allowing developers to integrate custom functionalities
+/// or test specific scenarios.
 pub trait Module {
+    /// Type of messages processed by the module instance.
     type ExecT;
+    /// Type of queries processed by the module instance.
     type QueryT;
+    /// Type of privileged messages used by the module instance.
     type SudoT;
 
     /// Runs any [ExecT](Self::ExecT) message,
@@ -25,7 +32,7 @@ pub trait Module {
         msg: Self::ExecT,
     ) -> AnyResult<AppResponse>
     where
-        ExecC: Debug + Clone + PartialEq + JsonSchema + DeserializeOwned + 'static,
+        ExecC: CustomMsg + DeserializeOwned + 'static,
         QueryC: CustomQuery + DeserializeOwned + 'static;
 
     /// Runs any [QueryT](Self::QueryT) message,
@@ -53,21 +60,26 @@ pub trait Module {
         msg: Self::SudoT,
     ) -> AnyResult<AppResponse>
     where
-        ExecC: Debug + Clone + PartialEq + JsonSchema + DeserializeOwned + 'static,
+        ExecC: CustomMsg + DeserializeOwned + 'static,
         QueryC: CustomQuery + DeserializeOwned + 'static;
 }
-
-pub struct FailingModule<ExecT, QueryT, SudoT> {
-    module_type: String,
-    _t: PhantomData<(ExecT, QueryT, SudoT)>,
-}
+/// # Always failing module
+///
+/// This could be a diagnostic or testing tool within the Cosmos ecosystem,
+/// designed to intentionally fail during processing any message, query or privileged action.
+pub struct FailingModule<ExecT, QueryT, SudoT>(PhantomData<(ExecT, QueryT, SudoT)>);
 
 impl<ExecT, QueryT, SudoT> FailingModule<ExecT, QueryT, SudoT> {
-    pub fn new(module_type: &str) -> Self {
-        Self {
-            module_type: module_type.to_string(),
-            _t: PhantomData,
-        }
+    /// Creates an instance of a failing module.
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<ExecT, QueryT, SudoT> Default for FailingModule<ExecT, QueryT, SudoT> {
+    /// Creates a default instance of a failing module.
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -91,12 +103,7 @@ where
         sender: Addr,
         msg: Self::ExecT,
     ) -> AnyResult<AppResponse> {
-        bail!(
-            "Unexpected exec msg {:?} from {:?} on {} module",
-            msg,
-            sender,
-            self.module_type
-        )
+        bail!("Unexpected exec msg {:?} from {:?}", msg, sender,)
     }
 
     /// Runs any [QueryT](Self::QueryT) message, always returns an error.
@@ -108,11 +115,7 @@ where
         _block: &BlockInfo,
         request: Self::QueryT,
     ) -> AnyResult<Binary> {
-        bail!(
-            "Unexpected custom query {:?} on {} module",
-            request,
-            self.module_type
-        )
+        bail!("Unexpected custom query {:?}", request,)
     }
 
     /// Runs any [SudoT](Self::SudoT) privileged action, always returns an error.
@@ -124,23 +127,24 @@ where
         _block: &BlockInfo,
         msg: Self::SudoT,
     ) -> AnyResult<AppResponse> {
-        bail!(
-            "Unexpected sudo msg {:?} on {} module",
-            msg,
-            self.module_type
-        )
+        bail!("Unexpected sudo msg {:?}", msg,)
     }
 }
-
+/// # Always accepting module
+///
+/// This struct represents a module in the Cosmos ecosystem designed to
+/// always accept all processed messages, queries and privileged actions.
 pub struct AcceptingModule<ExecT, QueryT, SudoT>(PhantomData<(ExecT, QueryT, SudoT)>);
 
 impl<ExecT, QueryT, SudoT> AcceptingModule<ExecT, QueryT, SudoT> {
+    /// Creates an instance of an accepting module.
     pub fn new() -> Self {
         Self(PhantomData)
     }
 }
 
 impl<ExecT, QueryT, SudoT> Default for AcceptingModule<ExecT, QueryT, SudoT> {
+    /// Creates an instance of an accepting module with default settings.
     fn default() -> Self {
         Self::new()
     }
@@ -169,7 +173,7 @@ where
         Ok(AppResponse::default())
     }
 
-    /// Runs any [QueryT](Self::QueryT) message, always returns an empty binary.
+    /// Runs any [QueryT](Self::QueryT) message, always returns a default (empty) binary.
     fn query(
         &self,
         _api: &dyn Api,

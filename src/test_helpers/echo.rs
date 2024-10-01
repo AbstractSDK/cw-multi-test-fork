@@ -1,12 +1,12 @@
 //! Very simple echoing contract which just returns incoming string if any,
 //! but performing sub call of given message to test response.
 //!
-//! Additionally it bypasses all events and attributes send to it.
+//! Additionally, it bypasses all events and attributes send to it.
 
 use crate::{Contract, ContractWrapper};
 use cosmwasm_std::{
-    to_json_binary, Attribute, Binary, Deps, DepsMut, Empty, Env, Event, MessageInfo, Reply,
-    Response, StdError, SubMsg, SubMsgResponse, SubMsgResult,
+    to_json_binary, Attribute, Binary, CustomMsg, Deps, DepsMut, Empty, Env, Event, MessageInfo,
+    Reply, Response, StdError, SubMsg, SubMsgResponse, SubMsgResult,
 };
 use cw_utils::{parse_execute_response_data, parse_instantiate_response_data};
 use derivative::Derivative;
@@ -87,7 +87,7 @@ fn query(_deps: Deps, _env: Env, msg: Empty) -> Result<Binary, StdError> {
     to_json_binary(&msg)
 }
 
-#[allow(clippy::unnecessary_wraps)]
+#[allow(clippy::unnecessary_wraps, deprecated)]
 fn reply<ExecC>(_deps: DepsMut, _env: Env, msg: Reply) -> Result<Response<ExecC>, StdError>
 where
     ExecC: Debug + PartialEq + Clone + JsonSchema + 'static,
@@ -98,6 +98,7 @@ where
         result: SubMsgResult::Ok(SubMsgResponse {
             data: Some(data), ..
         }),
+        ..
     } = msg
     {
         // We parse out the WasmMsg::Execute wrapper...
@@ -130,7 +131,7 @@ pub fn contract() -> Box<dyn Contract<Empty>> {
 
 pub fn custom_contract<C>() -> Box<dyn Contract<C>>
 where
-    C: Clone + Debug + PartialEq + JsonSchema + DeserializeOwned + 'static,
+    C: CustomMsg + DeserializeOwned + 'static,
 {
     let contract =
         ContractWrapper::new(execute::<C>, instantiate::<C>, query).with_reply(reply::<C>);

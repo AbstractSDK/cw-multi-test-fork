@@ -11,12 +11,12 @@ pub use length_prefixed::{
     CONTRACT_STORAGE_PREFIX,
 };
 
-/// An alias of PrefixedStorage::new for less verbose usage
+/// An alias of [PrefixedStorage::new] for less verbose usage.
 pub fn prefixed<'a>(storage: &'a mut dyn Storage, namespace: &[u8]) -> PrefixedStorage<'a> {
     PrefixedStorage::new(storage, namespace)
 }
 
-/// An alias of ReadonlyPrefixedStorage::new for less verbose usage
+/// An alias of [ReadonlyPrefixedStorage::new] for less verbose usage.
 pub fn prefixed_read<'a>(
     storage: &'a dyn Storage,
     namespace: &[u8],
@@ -24,12 +24,30 @@ pub fn prefixed_read<'a>(
     ReadonlyPrefixedStorage::new(storage, namespace)
 }
 
+/// An alias of [PrefixedStorage::multilevel] for less verbose usage.
+pub fn prefixed_multilevel<'a>(
+    storage: &'a mut dyn Storage,
+    namespaces: &[&[u8]],
+) -> PrefixedStorage<'a> {
+    PrefixedStorage::multilevel(storage, namespaces)
+}
+
+/// An alias of [ReadonlyPrefixedStorage::multilevel] for less verbose usage.
+pub fn prefixed_multilevel_read<'a>(
+    storage: &'a dyn Storage,
+    namespaces: &[&[u8]],
+) -> ReadonlyPrefixedStorage<'a> {
+    ReadonlyPrefixedStorage::multilevel(storage, namespaces)
+}
+
+/// Prefixed, mutable storage.
 pub struct PrefixedStorage<'a> {
     storage: &'a mut dyn Storage,
     prefix: Vec<u8>,
 }
 
 impl<'a> PrefixedStorage<'a> {
+    /// Returns a mutable prefixed storage with specified namespace.
     pub fn new(storage: &'a mut dyn Storage, namespace: &[u8]) -> Self {
         PrefixedStorage {
             storage,
@@ -37,8 +55,9 @@ impl<'a> PrefixedStorage<'a> {
         }
     }
 
-    // Nested namespaces as documented in
-    // https://github.com/webmaster128/key-namespacing#nesting
+    /// Returns a mutable prefixed storage with [nested namespaces].
+    ///
+    /// [nested namespaces]: https://github.com/webmaster128/key-namespacing#nesting
     pub fn multilevel(storage: &'a mut dyn Storage, namespaces: &[&[u8]]) -> Self {
         PrefixedStorage {
             storage,
@@ -52,16 +71,8 @@ impl<'a> Storage for PrefixedStorage<'a> {
         get_with_prefix(self.storage, &self.prefix, key)
     }
 
-    fn set(&mut self, key: &[u8], value: &[u8]) {
-        set_with_prefix(self.storage, &self.prefix, key, value);
-    }
-
-    fn remove(&mut self, key: &[u8]) {
-        remove_with_prefix(self.storage, &self.prefix, key);
-    }
-
-    /// range allows iteration over a set of keys, either forwards or backwards
-    /// uses standard rust range notation, and eg db.range(b"foo"..b"bar") also works reverse
+    /// Range allows iteration over a set of keys, either forwards or backwards.
+    /// Uses standard rust range notation, and e.g. `db.range(b"foo"‥b"bar")` and also works reverse.
     fn range<'b>(
         &'b self,
         start: Option<&[u8]>,
@@ -70,14 +81,24 @@ impl<'a> Storage for PrefixedStorage<'a> {
     ) -> Box<dyn Iterator<Item = Record> + 'b> {
         range_with_prefix(self.storage, &self.prefix, start, end, order)
     }
+
+    fn set(&mut self, key: &[u8], value: &[u8]) {
+        set_with_prefix(self.storage, &self.prefix, key, value);
+    }
+
+    fn remove(&mut self, key: &[u8]) {
+        remove_with_prefix(self.storage, &self.prefix, key);
+    }
 }
 
+/// Prefixed, read-only storage.
 pub struct ReadonlyPrefixedStorage<'a> {
     storage: &'a dyn Storage,
     prefix: Vec<u8>,
 }
 
 impl<'a> ReadonlyPrefixedStorage<'a> {
+    /// Returns a read-only prefixed storage with specified namespace.
     pub fn new(storage: &'a dyn Storage, namespace: &[u8]) -> Self {
         ReadonlyPrefixedStorage {
             storage,
@@ -85,8 +106,9 @@ impl<'a> ReadonlyPrefixedStorage<'a> {
         }
     }
 
-    // Nested namespaces as documented in
-    // https://github.com/webmaster128/key-namespacing#nesting
+    /// Returns a read-only prefixed storage with [nested namespaces].
+    ///
+    /// [nested namespaces]: https://github.com/webmaster128/key-namespacing#nesting
     pub fn multilevel(storage: &'a dyn Storage, namespaces: &[&[u8]]) -> Self {
         ReadonlyPrefixedStorage {
             storage,
@@ -100,15 +122,7 @@ impl<'a> Storage for ReadonlyPrefixedStorage<'a> {
         get_with_prefix(self.storage, &self.prefix, key)
     }
 
-    fn set(&mut self, _key: &[u8], _value: &[u8]) {
-        unimplemented!();
-    }
-
-    fn remove(&mut self, _key: &[u8]) {
-        unimplemented!();
-    }
-
-    /// range allows iteration over a set of keys, either forwards or backwards
+    /// Range allows iteration over a set of keys, either forwards or backwards.
     fn range<'b>(
         &'b self,
         start: Option<&[u8]>,
@@ -116,6 +130,14 @@ impl<'a> Storage for ReadonlyPrefixedStorage<'a> {
         order: Order,
     ) -> Box<dyn Iterator<Item = Record> + 'b> {
         range_with_prefix(self.storage, &self.prefix, start, end, order)
+    }
+
+    fn set(&mut self, _key: &[u8], _value: &[u8]) {
+        unimplemented!();
+    }
+
+    fn remove(&mut self, _key: &[u8]) {
+        unimplemented!();
     }
 }
 
@@ -137,6 +159,35 @@ mod tests {
         let s2 = PrefixedStorage::new(&mut storage, b"foo");
         assert_eq!(s2.get(b"bar"), Some(b"gotcha".to_vec()));
         assert_eq!(s2.get(b"elsewhere"), None);
+    }
+
+    #[test]
+    fn prefixed_storage_range() {
+        // prepare prefixed storage
+        let mut storage = MockStorage::new();
+        let mut ps1 = PrefixedStorage::new(&mut storage, b"foo");
+        ps1.set(b"a", b"A");
+        ps1.set(b"l", b"L");
+        ps1.set(b"p", b"P");
+        ps1.set(b"z", b"Z");
+        assert_eq!(storage.get(b"\x00\x03fooa").unwrap(), b"A".to_vec());
+        assert_eq!(storage.get(b"\x00\x03fool").unwrap(), b"L".to_vec());
+        assert_eq!(storage.get(b"\x00\x03foop").unwrap(), b"P".to_vec());
+        assert_eq!(storage.get(b"\x00\x03fooz").unwrap(), b"Z".to_vec());
+        // query prefixed storage using range function
+        let ps2 = PrefixedStorage::new(&mut storage, b"foo");
+        assert_eq!(
+            vec![b"A".to_vec(), b"L".to_vec(), b"P".to_vec()],
+            ps2.range(Some(b"a"), Some(b"z"), Order::Ascending)
+                .map(|(_, value)| value)
+                .collect::<Vec<Vec<u8>>>()
+        );
+        assert_eq!(
+            vec![b"Z".to_vec(), b"P".to_vec(), b"L".to_vec(), b"A".to_vec()],
+            ps2.range(Some(b"a"), None, Order::Descending)
+                .map(|(_, value)| value)
+                .collect::<Vec<Vec<u8>>>()
+        );
     }
 
     #[test]
@@ -170,6 +221,24 @@ mod tests {
         // no collisions with other prefixes
         let s2 = ReadonlyPrefixedStorage::new(&storage, b"fo");
         assert_eq!(s2.get(b"obar"), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    #[allow(clippy::unnecessary_mut_passed)]
+    fn readonly_prefixed_storage_set() {
+        let mut storage = MockStorage::new();
+        let mut rps = ReadonlyPrefixedStorage::new(&mut storage, b"foo");
+        rps.set(b"bar", b"gotcha");
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    #[allow(clippy::unnecessary_mut_passed)]
+    fn readonly_prefixed_storage_remove() {
+        let mut storage = MockStorage::new();
+        let mut rps = ReadonlyPrefixedStorage::new(&mut storage, b"foo");
+        rps.remove(b"gotcha");
     }
 
     #[test]
