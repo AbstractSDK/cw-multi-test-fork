@@ -152,6 +152,7 @@ impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
 where
     CustomT: Module,
     WasmT: Wasm<CustomT::ExecT, CustomT::QueryT>,
+    BankT: Bank,
     CustomT::QueryT: CustomQuery,
 {
     /// Overwrites the default wasm executor.
@@ -161,7 +162,7 @@ where
     /// done on final building.
     pub fn with_wasm<NewWasm: Wasm<CustomT::ExecT, CustomT::QueryT>>(
         self,
-        wasm: NewWasm,
+        mut wasm: NewWasm,
     ) -> AppBuilder<BankT, ApiT, StorageT, CustomT, NewWasm, StakingT, DistrT, IbcT, GovT, StargateT>
     {
         let AppBuilder {
@@ -178,7 +179,9 @@ where
             stargate,
             ..
         } = self;
-
+        if let Some(remote) = remote.as_ref() {
+            wasm.set_remote(remote.clone());
+        }
         AppBuilder {
             api,
             block,
@@ -198,7 +201,7 @@ where
     /// Overwrites the default bank interface.
     pub fn with_bank<NewBank: Bank>(
         self,
-        bank: NewBank,
+        mut bank: NewBank,
     ) -> AppBuilder<NewBank, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>
     {
         let AppBuilder {
@@ -216,6 +219,9 @@ where
             ..
         } = self;
 
+        if let Some(remote) = remote.as_ref() {
+            bank.set_remote(remote.clone());
+        }
         AppBuilder {
             api,
             block,
@@ -513,39 +519,14 @@ where
 
     /// Sets the chain of the app
     pub fn with_remote(
-        self,
+        mut self,
         remote: RemoteChannel,
     ) -> AppBuilder<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>
     {
-        let AppBuilder {
-            wasm,
-            api,
-            storage,
-            custom,
-            block,
-            staking,
-            bank,
-            distribution,
-            ibc,
-            gov,
-            stargate,
-            ..
-        } = self;
-
-        AppBuilder {
-            api,
-            block,
-            storage,
-            bank,
-            wasm,
-            custom,
-            staking,
-            distribution,
-            ibc,
-            gov,
-            stargate,
-            remote: Some(remote),
-        }
+        self.remote = Some(remote.clone());
+        self.wasm.set_remote(remote.clone());
+        self.bank.set_remote(remote.clone());
+        self
     }
 
     /// Overwrites the default stargate interface.

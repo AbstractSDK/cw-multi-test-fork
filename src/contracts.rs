@@ -5,9 +5,10 @@ use crate::wasm_emulation::query::mock_querier::ForkState;
 use crate::wasm_emulation::query::MockQuerier;
 use crate::wasm_emulation::storage::dual_std_storage::DualStorage;
 use crate::wasm_emulation::storage::storage_wrappers::{ReadonlyStorageWrapper, StorageWrapper};
+use anyhow::Error as AnyError;
 use cosmwasm_std::{
     from_json, Binary, Checksum, CosmosMsg, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env,
-    MessageInfo, QuerierWrapper, Reply, Response, StdError, SubMsg,
+    MessageInfo, QuerierWrapper, Reply, Response, SubMsg,
 };
 use serde::de::DeserializeOwned;
 use std::fmt::{Debug, Display};
@@ -177,10 +178,10 @@ pub struct ContractWrapper<
     C = Empty,
     Q = Empty,
     T4 = Empty,
-    E4 = StdError,
-    E5 = StdError,
+    E4 = AnyError,
+    E5 = AnyError,
     T6 = Empty,
-    E6 = StdError,
+    E6 = AnyError,
 > where
     T1: DeserializeOwned, // Type of message passed to `execute` entry-point.
     T2: DeserializeOwned, // Type of message passed to `instantiate` entry-point.
@@ -198,7 +199,7 @@ pub struct ContractWrapper<
 {
     execute_fn: ContractClosure<T1, C, E1, Q>,
     instantiate_fn: ContractClosure<T2, C, E2, Q>,
-    pub query_fn: QueryClosure<T3, E3, Q>,
+    query_fn: QueryClosure<T3, E3, Q>,
     sudo_fn: Option<PermissionedClosure<T4, C, E4, Q>>,
     reply_fn: Option<ReplyClosure<C, E5, Q>>,
     migrate_fn: Option<PermissionedClosure<T6, C, E6, Q>>,

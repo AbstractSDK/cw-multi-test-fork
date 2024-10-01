@@ -1,15 +1,15 @@
 [package]
-repository = "https://github.com/CosmWasm/cw-multi-test"
+name = "clone-cw-multi-test"
 version = "0.6.2"
 authors = [
     "Ethan Frey <ethanfrey@users.noreply.github.com>",
     "Dariusz Depta <DariuszDepta@users.noreply.github.com>",
 ]
-edition = "2021"
 description = "Testing tools for multi-contract interactions. Helps simulating chain behavior with on-chain storage locally"
-license = "Apache-2.0"
-name = "clone-cw-multi-test"
+repository = "https://github.com/CosmWasm/cw-multi-test"
 homepage = "https://cosmwasm.com"
+license = "Apache-2.0"
+edition = "2021"
 
 [package.metadata.docs.rs]
 all-features = true

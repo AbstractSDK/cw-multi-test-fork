@@ -139,7 +139,6 @@ mod gov;
 mod ibc;
 mod module;
 pub(crate) mod prefixed_storage;
-pub mod queries;
 #[cfg(feature = "staking")]
 mod staking;
 mod stargate;
@@ -147,7 +146,11 @@ mod test_helpers;
 pub(crate) mod tests;
 mod transactions;
 mod wasm;
+
+// --- Clone Testing Modules --- //
+pub mod queries;
 pub mod wasm_emulation;
+// --- End --- //
 
 pub use crate::addresses::{
     AddressGenerator, IntoAddr, IntoBech32, IntoBech32m, SimpleAddressGenerator,
@@ -169,6 +172,5 @@ pub use crate::staking::{
     Distribution, DistributionKeeper, StakeKeeper, Staking, StakingInfo, StakingSudo,
 };
 pub use crate::stargate::{Stargate, StargateAccepting, StargateFailing};
-pub use crate::wasm::{
-    ContractData, Wasm, WasmKeeper, WasmSudo, LOCAL_RUST_CODE_OFFSET, LOCAL_WASM_CODE_OFFSET,
-};
+pub use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
+pub use crate::wasm::{LOCAL_RUST_CODE_OFFSET, LOCAL_WASM_CODE_OFFSET};

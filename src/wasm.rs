@@ -12,7 +12,7 @@ use crate::wasm_emulation::contract::{LocalWasmContract, WasmContract};
 use crate::wasm_emulation::input::QuerierStorage;
 use crate::wasm_emulation::instance::create_module;
 use crate::wasm_emulation::query::mock_querier::{ForkState, LocalForkedState};
-use crate::wasm_emulation::query::AllWasmQuerier;
+use crate::wasm_emulation::query::{AllWasmQuerier, ContainsRemote};
 use cosmwasm_std::testing::mock_wasmd_attr;
 use cosmwasm_std::{
     to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Checksum, Coin, ContractInfo,
@@ -89,7 +89,7 @@ pub struct CodeData {
     pub source_id: usize,
 }
 /// This trait implements the interface of the Wasm module.
-pub trait Wasm<ExecC, QueryC>: AllWasmQuerier {
+pub trait Wasm<ExecC, QueryC>: AllWasmQuerier + ContainsRemote {
     /// Handles all `WasmMsg` messages.
     fn execute(
         &self,
@@ -196,7 +196,7 @@ pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
     // chain on which the contract should be queried/tested against
     remote: Option<RemoteChannel>,
     /// Just markers to make type elision fork when using it as `Wasm` trait
-    _p: std::marker::PhantomData<(ExecC, QueryC)>,
+    _p: std::marker::PhantomData<QueryC>,
 }
 
 impl<ExecC, QueryC: CustomQuery> Default for WasmKeeper<ExecC, QueryC> {
@@ -277,7 +277,7 @@ where
                 let code_data = self.code_data(code_id)?;
                 let res = cosmwasm_std::CodeInfoResponse::new(
                     code_id,
-                    code_data.creator,
+                    code_data.creator.clone(),
                     code_data.checksum,
                 );
                 to_json_binary(&res).map_err(Into::into)
@@ -342,7 +342,6 @@ where
         let code_id = self
             .next_code_id()
             .unwrap_or_else(|| panic!("{}", Error::NoMoreCodeIdAvailable));
-
         self.save_code(code_id, creator, code)
     }
 
@@ -383,12 +382,12 @@ where
 
     /// Returns `ContractData` for the contract with specified address.
     fn contract_data(&self, storage: &dyn Storage, address: &Addr) -> AnyResult<ContractData> {
-        let contract = CONTRACTS.load(&prefixed_read(storage, NAMESPACE_WASM), address);
-        if let Ok(local_contract) = contract {
-            Ok(local_contract)
-        } else {
-            WasmRemoteQuerier::load_distant_contract(self.remote.clone().unwrap(), address)
-        }
+        CONTRACTS
+            .load(&prefixed_read(storage, NAMESPACE_WASM), address)
+            .or_else(|_| {
+                WasmRemoteQuerier::load_distant_contract(self.remote.clone().unwrap(), address)
+            })
+            .map_err(Into::into)
     }
 
     /// Returns a raw state dump of all key-values held by a contract with specified address.
@@ -512,17 +511,6 @@ where
     ) -> Self {
         self.checksum_generator = Box::new(checksum_generator);
         self
-    }
-
-    /// Specify the remote location of this wasm
-    pub fn with_remote(mut self, remote: RemoteChannel) -> Self {
-        self.remote = Some(remote);
-        self
-    }
-
-    /// Specify the remote location of this wasm
-    pub fn set_remote(&mut self, remote: RemoteChannel) {
-        self.remote = Some(remote);
     }
 
     /// Returns a handler to code of the contract with specified code id.
@@ -684,14 +672,14 @@ where
     /// Returns the value stored under specified key in contracts storage.
     pub fn query_raw(&self, address: Addr, storage: &dyn Storage, key: &[u8]) -> Binary {
         let storage = self.contract_storage(storage, &address);
-        let local_key = storage.get(key);
-        if let Some(local_key) = local_key {
-            local_key.into()
-        } else {
-            WasmRemoteQuerier::raw_query(self.remote.clone().unwrap(), &address, key.into())
-                .unwrap_or_default()
-                .into()
-        }
+        let data = storage
+            .get(key)
+            .or_else(|| {
+                WasmRemoteQuerier::raw_query(self.remote.clone().unwrap(), &address, key.into())
+                    .ok()
+            })
+            .unwrap_or_default();
+        data.into()
     }
 
     fn send<T>(
@@ -795,7 +783,6 @@ where
                     Event::new("execute").add_attribute(CONTRACT_ATTR, &contract_addr);
 
                 let (res, msgs) = self.build_app_response(&contract_addr, custom_event, res);
-
                 let mut res =
                     self.process_response(api, router, storage, block, contract_addr, res, msgs)?;
                 res.data = execute_response(res.data);
@@ -938,7 +925,6 @@ where
             .add_attribute("code_id", code_id.to_string());
 
         let (res, msgs) = self.build_app_response(&contract_addr, custom_event, res);
-
         let mut res = self.process_response(
             api,
             router,
@@ -1383,8 +1369,8 @@ where
         action(handler, deps, env)
     }
 
-    fn with_storage<'a, 'b, F, T>(
-        &'a self,
+    fn with_storage<F, T>(
+        &self,
         api: &dyn Api,
         storage: &mut dyn Storage,
         router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
@@ -1393,8 +1379,7 @@ where
         action: F,
     ) -> AnyResult<T>
     where
-        F: FnOnce(ContractBox<'b, ExecC, QueryC>, DepsMut<QueryC>, Env) -> AnyResult<T>,
-        'a: 'b,
+        F: FnOnce(ContractBox<ExecC, QueryC>, DepsMut<QueryC>, Env) -> AnyResult<T>,
         ExecC: DeserializeOwned,
     {
         let contract = self.contract_data(storage, &address)?;
@@ -1440,6 +1425,21 @@ where
                 Order::Ascending,
             )
             .count()
+    }
+}
+
+impl<ExecC, QueryC> ContainsRemote for WasmKeeper<ExecC, QueryC>
+where
+    ExecC: CustomMsg + DeserializeOwned + 'static,
+    QueryC: CustomQuery + DeserializeOwned + 'static,
+{
+    fn with_remote(mut self, remote: RemoteChannel) -> Self {
+        self.set_remote(remote);
+        self
+    }
+
+    fn set_remote(&mut self, remote: RemoteChannel) {
+        self.remote = Some(remote)
     }
 }
 

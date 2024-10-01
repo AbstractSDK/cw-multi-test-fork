@@ -7,6 +7,7 @@ use crate::tests::{default_app, remote_channel};
 use crate::transactions::{transactional, StorageTransaction};
 use crate::wasm::ContractData;
 use crate::wasm_emulation::channel::RemoteChannel;
+use crate::wasm_emulation::query::ContainsRemote;
 use crate::{
     custom_app, next_block, no_init, App, AppResponse, Bank, CosmosRouter, Executor, Module,
     Router, Wasm, WasmKeeper, WasmSudo,

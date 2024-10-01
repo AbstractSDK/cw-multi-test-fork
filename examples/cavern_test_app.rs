@@ -1,8 +1,6 @@
 use clone_cw_multi_test::{
-    wasm_emulation::{
-        channel::RemoteChannel, contract::WasmContract, storage::analyzer::StorageAnalyzer,
-    },
-    AppBuilder, BankKeeper, Executor, MockApiBech32, WasmKeeper,
+    wasm_emulation::{channel::RemoteChannel, storage::analyzer::StorageAnalyzer},
+    AppBuilder, Executor, MockApiBech32,
 };
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{coins, Addr, BlockInfo, ContractInfoResponse, QueryRequest, WasmQuery};
@@ -64,9 +62,6 @@ pub fn test() -> anyhow::Result<()> {
         chain.network_info.pub_address_prefix,
     )?;
 
-    let wasm = WasmKeeper::<Empty, Empty>::new().with_remote(remote_channel.clone());
-    let bank = BankKeeper::new().with_remote(remote_channel.clone());
-
     let block = runtime.block_on(
         Node {
             channel: remote_channel.channel.clone(),
@@ -76,8 +71,6 @@ pub fn test() -> anyhow::Result<()> {
     )?;
     // First we instantiate a new app
     let app = AppBuilder::default()
-        .with_wasm(wasm)
-        .with_bank(bank)
         .with_remote(remote_channel.clone())
         .with_block(BlockInfo {
             height: block.height,
@@ -125,7 +118,7 @@ pub fn test() -> anyhow::Result<()> {
     let code = std::fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("artifacts")
-            .join("counter_contract.wasm"),
+            .join("counter_contract_with_cousin.wasm"),
     )
     .unwrap();
 

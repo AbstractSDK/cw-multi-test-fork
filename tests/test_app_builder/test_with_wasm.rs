@@ -1,5 +1,6 @@
 use crate::cw_multi_test::wasm_emulation::input::WasmStorage;
 use crate::cw_multi_test::wasm_emulation::query::AllWasmQuerier;
+use crate::cw_multi_test::wasm_emulation::query::ContainsRemote;
 use crate::test_app_builder::MyKeeper;
 use crate::test_contracts;
 use cosmwasm_std::{
@@ -25,6 +26,16 @@ static WASM_RAW: Lazy<Vec<Record>> = Lazy::new(|| vec![(vec![154u8], vec![155u8]
 // This is on purpose derived from module, to check if there are no compilation errors
 // when custom wasm keeper implements also Module trait (although it is not needed).
 type MyWasmKeeper = MyKeeper<Empty, Empty, Empty>;
+
+impl ContainsRemote for MyWasmKeeper {
+    fn with_remote(self, _remote: cw_multi_test::wasm_emulation::channel::RemoteChannel) -> Self {
+        todo!()
+    }
+
+    fn set_remote(&mut self, _remote: cw_multi_test::wasm_emulation::channel::RemoteChannel) {
+        todo!()
+    }
+}
 
 impl<ExecT, QueryT> Wasm<ExecT, QueryT> for MyWasmKeeper {
     fn execute(

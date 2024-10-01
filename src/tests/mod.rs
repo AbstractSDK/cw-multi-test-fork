@@ -6,7 +6,11 @@ use cw_orch::{
     prelude::ChainInfo,
 };
 
-use crate::{no_init, wasm_emulation::channel::RemoteChannel, App, AppBuilder, WasmKeeper};
+use crate::{
+    no_init,
+    wasm_emulation::{channel::RemoteChannel, query::ContainsRemote},
+    App, AppBuilder, WasmKeeper,
+};
 pub const CHAIN: ChainInfo = XION_TESTNET_1;
 pub fn remote_channel() -> RemoteChannel {
     RemoteChannel::new(

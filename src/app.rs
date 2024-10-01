@@ -1,8 +1,6 @@
-use crate::wasm_emulation::api::RealApi;
 use crate::wasm_emulation::channel::RemoteChannel;
 use crate::wasm_emulation::input::QuerierStorage;
 use cosmwasm_std::CustomMsg;
-use cw_storage_plus::Item;
 
 use crate::bank::{Bank, BankKeeper, BankSudo};
 use crate::error::{bail, AnyResult};
@@ -28,8 +26,6 @@ use cosmwasm_std::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-
-const ADDRESSES: Item<Vec<Addr>> = Item::new("addresses");
 
 /// Advances the blockchain environment to the next block in tests, enabling developers to simulate
 /// time-dependent contract behaviors and block-related triggers efficiently.
@@ -260,27 +256,10 @@ where
 {
     /// Registers contract code (like uploading wasm bytecode on a chain),
     /// so it can later be used to instantiate a contract.
-    /// Only for wasm codes
-    pub fn store_wasm_code(&mut self, code: Vec<u8>) -> u64 {
-        self.init_modules(|router, _, _| {
-            router
-                .wasm
-                .store_wasm_code(Addr::unchecked("code-creator"), code)
-        })
-    }
-
-    /// Registers contract code (like uploading wasm bytecode on a chain),
-    /// so it can later be used to instantiate a contract.
     pub fn store_code(&mut self, code: Box<dyn Contract<CustomT::ExecT, CustomT::QueryT>>) -> u64 {
         self.router
             .wasm
             .store_code(MockApi::default().addr_make("creator"), code)
-    }
-
-    /// Registers contract code (like [store_code](Self::store_code)),
-    /// but takes the address of the code creator as an additional argument.
-    pub fn store_wasm_code_with_creator(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
-        self.init_modules(|router, _, _| router.wasm.store_wasm_code(creator, code))
     }
 
     /// Registers contract code (like [store_code](Self::store_code)),
@@ -291,6 +270,22 @@ where
         code: Box<dyn Contract<CustomT::ExecT, CustomT::QueryT>>,
     ) -> u64 {
         self.router.wasm.store_code(creator, code)
+    }
+
+    /// Registers contract code (like uploading wasm bytecode on a chain),
+    /// so it can later be used to instantiate a contract.
+    /// Only for wasm codes
+    pub fn store_wasm_code(&mut self, code: Vec<u8>) -> u64 {
+        self.init_modules(|router, _, _| {
+            router
+                .wasm
+                .store_wasm_code(Addr::unchecked("code-creator"), code)
+        })
+    }
+    /// Registers contract code (like [store_code](Self::store_code)),
+    /// but takes the address of the code creator as an additional argument.
+    pub fn store_wasm_code_with_creator(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
+        self.init_modules(|router, _, _| router.wasm.store_wasm_code(creator, code))
     }
 
     /// Registers contract code (like [store_code_with_creator](Self::store_code_with_creator)),
@@ -445,22 +440,6 @@ where
     /// Returns a copy of the current block info.
     pub fn block_info(&self) -> BlockInfo {
         self.block.clone()
-    }
-
-    /// Returns a new account address
-    pub fn next_address(&mut self) -> Addr {
-        let Self {
-            storage, remote, ..
-        } = self;
-
-        let mut addresses = ADDRESSES.may_load(storage).unwrap().unwrap_or_default();
-
-        let new_address =
-            RealApi::new(&remote.pub_address_prefix.clone()).next_address(addresses.len());
-        addresses.push(new_address.clone());
-        ADDRESSES.save(storage, &addresses).unwrap();
-
-        new_address
     }
 
     /// Simple helper so we get access to all the QuerierWrapper helpers,

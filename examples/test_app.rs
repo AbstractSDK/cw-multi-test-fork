@@ -1,3 +1,4 @@
+use clone_cw_multi_test::wasm_emulation::query::ContainsRemote;
 use clone_cw_multi_test::{
     wasm_emulation::channel::RemoteChannel, AppBuilder, BankKeeper, Executor, WasmKeeper,
 };

@@ -5,8 +5,8 @@ use std::path::Path;
 
 use anyhow::Result as AnyResult;
 use clone_cw_multi_test::{
-    wasm_emulation::channel::RemoteChannel, App, AppBuilder, BankKeeper, ContractWrapper, Executor,
-    MockApiBech32, WasmKeeper,
+    wasm_emulation::{channel::RemoteChannel, query::ContainsRemote},
+    App, AppBuilder, BankKeeper, ContractWrapper, Executor, MockApiBech32, WasmKeeper,
 };
 use cosmwasm_std::{Addr, Empty};
 use counter::msg::{ExecuteMsg, GetCountResponse, QueryMsg};
@@ -30,7 +30,7 @@ fn increment(app: &mut App<BankKeeper, MockApiBech32>, contract: Addr) -> AnyRes
 fn count(app: &App<BankKeeper, MockApiBech32>, contract: Addr) -> AnyResult<GetCountResponse> {
     Ok(app
         .wrap()
-        .query_wasm_smart(contract.clone(), &QueryMsg::Count {})?)
+        .query_wasm_smart(contract.clone(), &QueryMsg::GetCount {})?)
 }
 
 fn raw_cousin_count(
@@ -39,7 +39,7 @@ fn raw_cousin_count(
 ) -> AnyResult<GetCountResponse> {
     Ok(app
         .wrap()
-        .query_wasm_smart(contract.clone(), &QueryMsg::RawCousinCount {})?)
+        .query_wasm_smart(contract.clone(), &QueryMsg::GetRawCousinCount {})?)
 }
 
 fn cousin_count(
@@ -48,7 +48,7 @@ fn cousin_count(
 ) -> AnyResult<GetCountResponse> {
     Ok(app
         .wrap()
-        .query_wasm_smart(contract.clone(), &QueryMsg::CousinCount {})?)
+        .query_wasm_smart(contract.clone(), &QueryMsg::GetCousinCount {})?)
 }
 
 fn test() -> AnyResult<()> {

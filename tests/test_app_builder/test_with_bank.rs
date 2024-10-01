@@ -2,7 +2,9 @@ use crate::test_app_builder::MyKeeper;
 use anyhow::bail;
 use cosmwasm_std::{coins, BankMsg, BankQuery};
 use cw_multi_test::{
-    no_init, wasm_emulation::query::AllBankQuerier, AppBuilder, Bank, BankSudo, Executor,
+    no_init,
+    wasm_emulation::query::{AllBankQuerier, ContainsRemote},
+    AppBuilder, Bank, BankSudo, Executor,
 };
 
 type MyBankKeeper = MyKeeper<BankMsg, BankQuery, BankSudo>;
@@ -14,6 +16,15 @@ impl AllBankQuerier for MyBankKeeper {
         _storage: &dyn cosmwasm_std::Storage,
     ) -> anyhow::Result<cw_multi_test::wasm_emulation::input::BankStorage> {
         bail!(self.1)
+    }
+}
+impl ContainsRemote for MyBankKeeper {
+    fn with_remote(self, _remote: cw_multi_test::wasm_emulation::channel::RemoteChannel) -> Self {
+        todo!()
+    }
+
+    fn set_remote(&mut self, _remote: cw_multi_test::wasm_emulation::channel::RemoteChannel) {
+        todo!()
     }
 }
 

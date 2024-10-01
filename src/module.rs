@@ -103,7 +103,7 @@ where
         sender: Addr,
         msg: Self::ExecT,
     ) -> AnyResult<AppResponse> {
-        bail!("Unexpected exec msg {:?} from {:?}", msg, sender,)
+        bail!("Unexpected exec msg {:?} from {:?}", msg, sender)
     }
 
     /// Runs any [QueryT](Self::QueryT) message, always returns an error.
@@ -115,7 +115,7 @@ where
         _block: &BlockInfo,
         request: Self::QueryT,
     ) -> AnyResult<Binary> {
-        bail!("Unexpected custom query {:?}", request,)
+        bail!("Unexpected custom query {:?}", request)
     }
 
     /// Runs any [SudoT](Self::SudoT) privileged action, always returns an error.
@@ -127,7 +127,7 @@ where
         _block: &BlockInfo,
         msg: Self::SudoT,
     ) -> AnyResult<AppResponse> {
-        bail!("Unexpected sudo msg {:?}", msg,)
+        bail!("Unexpected sudo msg {:?}", msg)
     }
 }
 /// # Always accepting module

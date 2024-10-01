@@ -5,7 +5,7 @@ use crate::module::Module;
 use crate::prefixed_storage::{prefixed, prefixed_read};
 use crate::queries::bank::BankRemoteQuerier;
 use crate::wasm_emulation::channel::RemoteChannel;
-use crate::wasm_emulation::query::AllBankQuerier;
+use crate::wasm_emulation::query::{AllBankQuerier, ContainsRemote};
 use cosmwasm_std::{
     coin, to_json_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery,
     Binary, BlockInfo, Coin, DenomMetadata, Event, Querier, Storage,
@@ -46,7 +46,7 @@ pub enum BankSudo {
 /// like transfers and balance checks, within your smart contracts.
 /// This trait implements all of these functionalities.
 pub trait Bank:
-    Module<ExecT = BankMsg, QueryT = BankQuery, SudoT = BankSudo> + AllBankQuerier
+    Module<ExecT = BankMsg, QueryT = BankQuery, SudoT = BankSudo> + AllBankQuerier + ContainsRemote
 {
 }
 
@@ -64,15 +64,6 @@ impl BankKeeper {
     /// Creates a new instance of a bank keeper with default settings.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn with_remote(mut self, remote: RemoteChannel) -> Self {
-        self.remote = Some(remote);
-        self
-    }
-
-    pub fn set_remote(&mut self, remote: RemoteChannel) {
-        self.remote = Some(remote);
     }
 
     /// Administration function for adjusting bank accounts in genesis.
@@ -183,6 +174,17 @@ impl BankKeeper {
         } else {
             Ok(res)
         }
+    }
+}
+
+impl ContainsRemote for BankKeeper {
+    fn with_remote(mut self, remote: RemoteChannel) -> Self {
+        self.set_remote(remote);
+        self
+    }
+
+    fn set_remote(&mut self, remote: RemoteChannel) {
+        self.remote = Some(remote)
     }
 }
 
