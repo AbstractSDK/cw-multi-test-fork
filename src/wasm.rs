@@ -4,7 +4,6 @@ use crate::checksums::{ChecksumGenerator, SimpleChecksumGenerator};
 use crate::contracts::Contract;
 use crate::error::{bail, AnyContext, AnyError, AnyResult, Error};
 use crate::executor::AppResponse;
-use crate::prefixed_storage::contract_namespace;
 use crate::prefixed_storage::{prefixed, prefixed_read, PrefixedStorage, ReadonlyPrefixedStorage};
 use crate::queries::wasm::WasmRemoteQuerier;
 use crate::transactions::transactional;
@@ -16,19 +15,19 @@ use crate::wasm_emulation::query::mock_querier::{ForkState, LocalForkedState};
 use crate::wasm_emulation::query::AllWasmQuerier;
 use cosmwasm_std::testing::mock_wasmd_attr;
 use cosmwasm_std::{
-    to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Coin, ContractInfo,
-    ContractInfoResponse, CustomQuery, Deps, DepsMut, Env, Event, MessageInfo, Order, Querier,
-    QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult, Storage, SubMsg, SubMsgResponse,
-    SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
+    to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Checksum, Coin, ContractInfo,
+    ContractInfoResponse, CustomMsg, CustomQuery, Deps, DepsMut, Env, Event, MessageInfo, Order,
+    Querier, QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult, Storage, SubMsg,
+    SubMsgResponse, SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
 };
-use cosmwasm_std::{Checksum, CustomMsg};
 use cw_storage_plus::Map;
 use prost::Message;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 /// Contract state kept in storage, separate from the contracts themselves (contract code).
@@ -73,6 +72,10 @@ pub struct ContractData {
     pub creator: Addr,
     /// Optional address of account who can execute migrations
     pub admin: Option<Addr>,
+    /// Metadata passed while contract instantiation
+    pub label: String,
+    /// Blockchain height in the moment of instantiating the contract
+    pub created: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -83,12 +86,9 @@ pub struct CodeData {
     /// Checksum of the contract's code base.
     pub checksum: Checksum,
     /// Identifier of the code base where the contract code is stored in memory.
-    pub code_base_id: usize,
+    pub source_id: usize,
 }
-
-/// Acts as the interface for interacting with WebAssembly (Wasm) modules.
-/// This trait is crucial for testing smart contracts written in languages that compile to WebAssembly,
-/// which is common in the Cosmos and CosmWasm ecosystems.
+/// This trait implements the interface of the Wasm module.
 pub trait Wasm<ExecC, QueryC>: AllWasmQuerier {
     /// Handles all `WasmMsg` messages.
     fn execute(
@@ -183,12 +183,12 @@ pub trait Wasm<ExecC, QueryC>: AllWasmQuerier {
 pub type LocalRustContract<ExecC, QueryC> = *mut dyn Contract<ExecC, QueryC>;
 pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
     /// Contract codes that stand for wasm code in real-life blockchain.
-    pub code_base: RefCell<BTreeMap<usize, WasmContract>>,
+    pub code_base: RefCell<BTreeMap<u64, WasmContract>>,
+    /// Code data with code base identifier and additional attributes.  
+    pub code_data: BTreeMap<u64, CodeData>,
     /// Contract codes that stand for rust code living in the current instance
     /// We also associate the queries to them to make sure we are able to use them with the vm instance
-    pub rust_codes: HashMap<usize, LocalRustContract<ExecC, QueryC>>,
-    /// Code data with code base identifier and additional attributes.  
-    pub code_data: BTreeMap<usize, CodeData>,
+    pub rust_codes: HashMap<u64, LocalRustContract<ExecC, QueryC>>,
     /// Contract's address generator.
     address_generator: Box<dyn AddressGenerator>,
     /// Contract's code checksum generator.
@@ -272,6 +272,7 @@ where
                 );
                 to_json_binary(&res).map_err(Into::into)
             }
+            #[cfg(feature = "cosmwasm_1_2")]
             WasmQuery::CodeInfo { code_id } => {
                 let code_data = self.code_data(code_id)?;
                 let res = cosmwasm_std::CodeInfoResponse::new(
@@ -313,25 +314,36 @@ where
     /// Stores the contract's code in the in-memory lookup table.
     /// Returns an identifier of the stored contract code.
     fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
-        let code_id = self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET;
+        let code_id = self
+            .next_code_id()
+            .unwrap_or_else(|| panic!("{}", Error::NoMoreCodeIdAvailable));
         let code = WasmContract::Local(LocalWasmContract {
             module: create_module(&code).unwrap(),
             code,
         });
+        let checksum = <WasmContract as Contract<ExecC, QueryC>>::checksum(&code)
+            .unwrap_or(self.checksum_generator.checksum(&creator, code_id));
 
         self.code_base.borrow_mut().insert(code_id, code);
-        self.save_code_data(code_id as u64, creator)
+        self.code_data.insert(
+            code_id,
+            CodeData {
+                creator,
+                checksum,
+                source_id: code_id as usize,
+            },
+        );
+        code_id
     }
 
     /// Stores the contract's code in the in-memory lookup table.
     /// Returns an identifier of the stored contract code.
     fn store_code(&mut self, creator: Addr, code: Box<dyn Contract<ExecC, QueryC>>) -> u64 {
-        let code_id = self.rust_codes.len() + 1 + LOCAL_RUST_CODE_OFFSET;
+        let code_id = self
+            .next_code_id()
+            .unwrap_or_else(|| panic!("{}", Error::NoMoreCodeIdAvailable));
 
-        let static_ref = Box::leak(code);
-        let raw_pointer = static_ref as *mut dyn Contract<ExecC, QueryC>;
-        self.rust_codes.insert(code_id, raw_pointer);
-        self.save_code_data(code_id as u64, creator)
+        self.save_code(code_id, creator, code)
     }
 
     /// Stores the contract's code in the in-memory lookup table.
@@ -343,31 +355,30 @@ where
         code: Box<dyn Contract<ExecC, QueryC>>,
     ) -> AnyResult<u64> {
         // validate provided contract code identifier
-        if self.code_data.contains_key(&(code_id as usize)) {
+        if self.code_data.contains_key(&code_id) {
             bail!(Error::duplicated_code_id(code_id));
         } else if code_id == 0 {
             bail!(Error::invalid_code_id());
         }
-        let static_ref = Box::leak(code);
-        let raw_pointer = static_ref as *mut dyn Contract<ExecC, QueryC>;
-        self.rust_codes.insert(code_id as usize, raw_pointer);
-        Ok(self.save_code_data(code_id, creator))
+        Ok(self.save_code(code_id, creator, code))
     }
 
     /// Duplicates the contract's code with specified identifier.
     /// Returns an identifier of the copy of the contract's code.
     fn duplicate_code(&mut self, code_id: u64) -> AnyResult<u64> {
         let code_data = self.code_data(code_id)?;
-        let new_code_id = self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET;
+        let new_code_id = self
+            .next_code_id()
+            .ok_or_else(Error::no_more_code_id_available)?;
         self.code_data.insert(
             new_code_id,
             CodeData {
                 creator: code_data.creator.clone(),
                 checksum: code_data.checksum,
-                code_base_id: code_data.code_base_id,
+                source_id: code_data.source_id,
             },
         );
-        Ok(new_code_id as u64)
+        Ok(new_code_id)
     }
 
     /// Returns `ContractData` for the contract with specified address.
@@ -416,6 +427,103 @@ where
             },
         })
     }
+    /// Creates a wasm keeper with default settings.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cw_multi_test::{no_init, AppBuilder, WasmKeeper};
+    ///
+    /// // create wasm keeper
+    /// let wasm_keeper = WasmKeeper::new();
+    ///
+    /// // create and use the application with newly created wasm keeper
+    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Populates an existing [WasmKeeper] with custom contract address generator.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cosmwasm_std::{Addr, Api, Storage};
+    /// use cw_multi_test::{no_init, AddressGenerator, AppBuilder, WasmKeeper};
+    /// use cw_multi_test::error::AnyResult;
+    /// # use cosmwasm_std::testing::MockApi;
+    ///
+    /// struct CustomAddressGenerator;
+    ///
+    /// impl AddressGenerator for CustomAddressGenerator {
+    ///     fn contract_address(
+    ///         &self,
+    ///         api: &dyn Api,
+    ///         storage: &mut dyn Storage,
+    ///         code_id: u64,
+    ///         instance_id: u64,
+    ///     ) -> AnyResult<Addr> {
+    ///         // here implement your address generation logic
+    /// #       Ok(MockApi::default().addr_make("test_address"))
+    ///     }
+    /// }
+    ///
+    /// // populate wasm with your custom address generator
+    /// let wasm_keeper = WasmKeeper::new().with_address_generator(CustomAddressGenerator);
+    ///
+    /// // create and use the application with customized wasm keeper
+    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
+    /// ```
+    pub fn with_address_generator(
+        mut self,
+        address_generator: impl AddressGenerator + 'static,
+    ) -> Self {
+        self.address_generator = Box::new(address_generator);
+        self
+    }
+
+    /// Populates an existing [WasmKeeper] with custom checksum generator for the contract code.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cosmwasm_std::{Addr, Checksum};
+    /// use cw_multi_test::{no_init, AppBuilder, ChecksumGenerator, WasmKeeper};
+    ///
+    /// struct MyChecksumGenerator;
+    ///
+    /// impl ChecksumGenerator for MyChecksumGenerator {
+    ///     fn checksum(&self, creator: &Addr, code_id: u64) -> Checksum {
+    ///         // here implement your custom checksum generator
+    /// #       Checksum::from_hex("custom_checksum").unwrap()
+    ///     }
+    /// }
+    ///
+    /// // populate wasm keeper with your custom checksum generator
+    /// let wasm_keeper = WasmKeeper::new().with_checksum_generator(MyChecksumGenerator);
+    ///
+    /// // create and use the application with customized wasm keeper
+    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
+    /// ```
+    pub fn with_checksum_generator(
+        mut self,
+        checksum_generator: impl ChecksumGenerator + 'static,
+    ) -> Self {
+        self.checksum_generator = Box::new(checksum_generator);
+        self
+    }
+
+    /// Specify the remote location of this wasm
+    pub fn with_remote(mut self, remote: RemoteChannel) -> Self {
+        self.remote = Some(remote);
+        self
+    }
+
+    /// Specify the remote location of this wasm
+    pub fn set_remote(&mut self, remote: RemoteChannel) {
+        self.remote = Some(remote);
+    }
 
     /// Returns a handler to code of the contract with specified code id.
     pub fn contract_code<'a, 'b>(
@@ -425,15 +533,10 @@ where
     where
         'a: 'b,
     {
-        let code_data = self.code_data(code_id)?;
-        let code = self
-            .code_base
-            .borrow()
-            .get(&code_data.code_base_id)
-            .cloned();
+        let code = self.code_base.borrow().get(&code_id).cloned();
         if let Some(code) = code {
             Ok(ContractBox::Owned(Box::new(code)))
-        } else if let Some(&rust_code) = self.rust_codes.get(&code_data.code_base_id) {
+        } else if let Some(&rust_code) = self.rust_codes.get(&code_id) {
             Ok(ContractBox::Borrowed(unsafe {
                 rust_code.as_ref().unwrap()
             }))
@@ -445,7 +548,7 @@ where
             // We save it in memory
             self.code_base
                 .borrow_mut()
-                .insert(code_id as usize, wasm_contract.clone());
+                .insert(code_id, wasm_contract.clone());
 
             // And return a Owned reference
             Ok(ContractBox::Owned(Box::new(wasm_contract)))
@@ -457,7 +560,7 @@ where
         if code_id < 1 {
             bail!(Error::invalid_code_id());
         }
-        if let Some(code_data) = self.code_data.get(&(code_id as usize)) {
+        if let Some(code_data) = self.code_data.get(&code_id) {
             Ok(code_data.clone())
         } else {
             let code_info_response =
@@ -465,7 +568,7 @@ where
             Ok(CodeData {
                 creator: Addr::unchecked(code_info_response.creator),
                 checksum: code_info_response.checksum,
-                code_base_id: code_id as usize,
+                source_id: code_id as usize,
             })
         }
     }
@@ -511,119 +614,40 @@ where
         Ok(response)
     }
 
-    fn save_code_data(&mut self, code_id: u64, creator: Addr) -> u64 {
-        // calculate the checksum of the contract 'source' code based on code_id
-        let checksum = self.checksum_generator.checksum(&creator, code_id);
+    fn save_code(
+        &mut self,
+        code_id: u64,
+        creator: Addr,
+        code: Box<dyn Contract<ExecC, QueryC>>,
+    ) -> u64 {
+        // prepare the next identifier for the contract's code
+        let source_id = code_id as usize;
+        // prepare the contract's Wasm blob checksum
+        let checksum = code
+            .checksum()
+            .unwrap_or(self.checksum_generator.checksum(&creator, code_id));
+        // store the 'source' code of the contract
+        let static_ref = Box::leak(code);
+        let raw_pointer = static_ref as *mut dyn Contract<ExecC, QueryC>;
+        self.rust_codes.insert(code_id, raw_pointer);
         // store the additional code attributes like creator address and checksum
         self.code_data.insert(
-            code_id as usize,
+            code_id,
             CodeData {
                 creator,
                 checksum,
-                code_base_id: code_id as usize,
+                source_id,
             },
         );
         code_id
     }
-}
-impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC>
-where
-    ExecC: CustomMsg + DeserializeOwned + 'static,
-    QueryC: CustomQuery + DeserializeOwned + 'static,
-{
-    /// Creates a wasm keeper with default settings.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cw_multi_test::{AppBuilder, no_init, WasmKeeper};
-    ///
-    /// // create wasm keeper
-    /// let wasm_keeper = WasmKeeper::new();
-    ///
-    /// // create and use the application with newly created wasm keeper
-    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
-    /// ```
-    pub fn new() -> Self {
-        Self::default()
-    }
-    /// Populates an existing [WasmKeeper] with custom contract address generator.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cosmwasm_std::{Addr, Api, Storage};
-    /// use cw_multi_test::{AddressGenerator, AppBuilder, no_init, WasmKeeper};
-    /// use cw_multi_test::error::AnyResult;
-    /// # use cosmwasm_std::testing::MockApi;
-    ///
-    /// struct CustomAddressGenerator;
-    ///
-    /// impl AddressGenerator for CustomAddressGenerator {
-    ///     fn contract_address(
-    ///         &self,
-    ///         api: &dyn Api,
-    ///         storage: &mut dyn Storage,
-    ///         code_id: u64,
-    ///         instance_id: u64,
-    ///     ) -> AnyResult<Addr> {
-    ///         // here implement your address generation logic
-    /// #       Ok(MockApi::default().addr_make("test_address"))
-    ///     }
-    /// }
-    ///
-    /// // populate wasm with your custom address generator
-    /// let wasm_keeper = WasmKeeper::new().with_address_generator(CustomAddressGenerator);
-    ///
-    /// // create and use the application with customized wasm keeper
-    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
-    /// ```
-    pub fn with_address_generator(
-        mut self,
-        address_generator: impl AddressGenerator + 'static,
-    ) -> Self {
-        self.address_generator = Box::new(address_generator);
-        self
+
+    /// Returns the next contract's code identifier.
+    fn next_code_id(&self) -> Option<u64> {
+        Some((self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET) as u64)
     }
 
-    /// Populates an existing [WasmKeeper] with custom checksum generator for the contract code.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cosmwasm_std::{Addr, Checksum};
-    /// use cw_multi_test::{AppBuilder, ChecksumGenerator, no_init, WasmKeeper};
-    ///
-    /// struct MyChecksumGenerator;
-    ///
-    /// impl ChecksumGenerator for MyChecksumGenerator {
-    ///     fn checksum(&self, creator: &Addr, code_id: u64) -> Checksum {
-    ///         // here implement your custom checksum generator
-    /// #       Checksum::from_hex("custom_checksum").unwrap()
-    ///     }
-    /// }
-    ///
-    /// // populate wasm keeper with your custom checksum generator
-    /// let wasm_keeper = WasmKeeper::new().with_checksum_generator(MyChecksumGenerator);
-    ///
-    /// // create and use the application with customized wasm keeper
-    /// let mut app = AppBuilder::default().with_wasm(wasm_keeper).build(no_init);
-    /// ```
-    pub fn with_checksum_generator(
-        mut self,
-        checksum_generator: impl ChecksumGenerator + 'static,
-    ) -> Self {
-        self.checksum_generator = Box::new(checksum_generator);
-        self
-    }
-
-    /// Specify the remote location of this wasm
-    pub fn with_remote(mut self, remote: RemoteChannel) -> Self {
-        self.remote = Some(remote);
-        self
-    }
-
-    /// Executes contract's `query` entry-point.
+    /// Executes the contract's `query` entry-point.
     pub fn query_smart(
         &self,
         address: Addr,
@@ -659,7 +683,8 @@ where
 
     /// Returns the value stored under specified key in contracts storage.
     pub fn query_raw(&self, address: Addr, storage: &dyn Storage, key: &[u8]) -> Binary {
-        let local_key = self.contract_storage(storage, &address).get(key);
+        let storage = self.contract_storage(storage, &address);
+        let local_key = storage.get(key);
         if let Some(local_key) = local_key {
             local_key.into()
         } else {
@@ -1103,8 +1128,8 @@ where
         code_id: u64,
         creator: Addr,
         admin: impl Into<Option<Addr>>,
-        _label: String,
-        _created: u64,
+        label: String,
+        created: u64,
         salt: impl Into<Option<Binary>>,
     ) -> AnyResult<Addr> {
         // We don't error if the code id doesn't exist, it allows us to instantiate remote contracts
@@ -1139,6 +1164,8 @@ where
             code_id,
             creator,
             admin: admin.into(),
+            label,
+            created,
         };
         self.save_contract(storage, &addr, &info)?;
         Ok(addr)
@@ -1458,9 +1485,10 @@ mod test {
     use super::*;
     use crate::app::Router;
     use crate::bank::BankKeeper;
+    use crate::featured::staking::{DistributionKeeper, StakeKeeper};
     use crate::module::FailingModule;
-    use crate::staking::{DistributionKeeper, StakeKeeper};
     use crate::test_helpers::{caller, error, payout};
+    use crate::tests::remote_channel;
     use crate::transactions::StorageTransaction;
     use crate::{GovFailingModule, IbcFailingModule, StargateFailing};
     use cosmwasm_std::testing::{message_info, mock_env, MockApi, MockQuerier, MockStorage};
@@ -1483,7 +1511,7 @@ mod test {
     >;
 
     fn wasm_keeper() -> WasmKeeper<Empty, Empty> {
-        WasmKeeper::new()
+        WasmKeeper::new().with_remote(remote_channel())
     }
 
     fn mock_router() -> BasicRouter {
@@ -1571,6 +1599,7 @@ mod test {
                 &block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
         })
         .unwrap_err();
@@ -1592,6 +1621,7 @@ mod test {
                 &block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
         })
         .unwrap_err();
@@ -1633,7 +1663,7 @@ mod test {
         };
 
         let contract_info = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query)
+            .query(&api, &wasm_storage, &mock_router(), &querier, &block, query)
             .unwrap();
 
         let actual: ContractInfoResponse = from_json(contract_info).unwrap();
@@ -1654,7 +1684,7 @@ mod test {
         let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
         let query = WasmQuery::CodeInfo { code_id };
         let code_info = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query)
+            .query(&api, &wasm_storage, &mock_router(), &querier, &block, query)
             .unwrap();
         let actual: CodeInfoResponse = from_json(code_info).unwrap();
         assert_eq!(code_id, actual.code_id);
@@ -1680,10 +1710,24 @@ mod test {
             code_id: code_id_caller,
         };
         let code_info_payout = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query_payout)
+            .query(
+                &api,
+                &wasm_storage,
+                &mock_router(),
+                &querier,
+                &block,
+                query_payout,
+            )
             .unwrap();
         let code_info_caller = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query_caller)
+            .query(
+                &api,
+                &wasm_storage,
+                &mock_router(),
+                &querier,
+                &block,
+                query_caller,
+            )
             .unwrap();
         let info_payout: CodeInfoResponse = from_json(code_info_payout).unwrap();
         let info_caller: CodeInfoResponse = from_json(code_info_caller).unwrap();
@@ -1706,7 +1750,7 @@ mod test {
         let query = WasmQuery::CodeInfo { code_id: 100 };
 
         wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query)
+            .query(&api, &wasm_storage, &mock_router(), &querier, &block, query)
             .unwrap_err();
     }
 
@@ -1752,6 +1796,7 @@ mod test {
                 &block,
                 message_info(&user_addr, &[]),
                 to_json_vec(&msg).unwrap(),
+                QuerierStorage::default(),
             )
             .unwrap();
 
@@ -1814,6 +1859,7 @@ mod test {
                 &block,
                 info,
                 init_msg,
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(0, res.messages.len());
@@ -1829,6 +1875,7 @@ mod test {
                 &block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(1, res.messages.len());
@@ -1847,7 +1894,15 @@ mod test {
         let query = to_json_vec(&payout::QueryMsg::Payout {}).unwrap();
         let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
         let data = wasm_keeper
-            .query_smart(contract_addr, &api, &wasm_storage, &querier, &block, query)
+            .query_smart(
+                contract_addr,
+                &api,
+                &wasm_storage,
+                &querier,
+                &block,
+                query,
+                QuerierStorage::default(),
+            )
             .unwrap();
         let res: payout::InstantiateMessage = from_json(data).unwrap();
         assert_eq!(res.payout, payout);
@@ -1871,6 +1926,7 @@ mod test {
                 &mock_env().block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(1, res.messages.len());
@@ -1933,6 +1989,7 @@ mod test {
                     &block,
                     info,
                     init_msg,
+                    QuerierStorage::default(),
                 )
                 .unwrap();
 
@@ -1974,6 +2031,7 @@ mod test {
                     &block,
                     info,
                     init_msg,
+                    QuerierStorage::default(),
                 )
                 .unwrap();
             assert_payout(&wasm_keeper, cache, &contract2, &payout2);
@@ -2010,6 +2068,7 @@ mod test {
                         &block,
                         info,
                         init_msg,
+                        QuerierStorage::default(),
                     )
                     .unwrap();
                 assert_payout(&wasm_keeper, cache2, &contract3, &payout3);
@@ -2053,6 +2112,7 @@ mod test {
             .query(
                 &api,
                 storage,
+                &mock_router(),
                 &querier,
                 &mock_env().block,
                 WasmQuery::ContractInfo {
@@ -2103,6 +2163,7 @@ mod test {
                 &block,
                 info,
                 init_msg,
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(0, res.messages.len());

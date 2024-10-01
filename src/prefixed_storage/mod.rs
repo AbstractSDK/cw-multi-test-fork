@@ -7,8 +7,7 @@ mod length_prefixed;
 mod namespace_helpers;
 
 pub use length_prefixed::{
-    contract_namespace, decode_length, get_full_contract_storage_namespace, to_length_prefixed,
-    CONTRACT_STORAGE_PREFIX,
+    decode_length, get_full_contract_storage_namespace, to_length_prefixed, CONTRACT_STORAGE_PREFIX,
 };
 
 /// An alias of [PrefixedStorage::new] for less verbose usage.

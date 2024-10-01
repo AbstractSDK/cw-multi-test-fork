@@ -1,6 +1,6 @@
 //! # Implementation of the contract trait and contract wrapper
 
-use crate::error::{anyhow, bail, AnyError, AnyResult};
+use crate::error::{anyhow, bail, AnyResult};
 use crate::wasm_emulation::query::mock_querier::ForkState;
 use crate::wasm_emulation::query::MockQuerier;
 use crate::wasm_emulation::storage::dual_std_storage::DualStorage;
@@ -14,36 +14,66 @@ use std::fmt::{Debug, Display};
 use std::ops::Deref;
 
 /// This trait serves as a primary interface for interacting with contracts.
-#[rustfmt::skip]
 pub trait Contract<C, Q = Empty>
 where
     C: CustomMsg,
     Q: CustomQuery + DeserializeOwned,
 {
     /// Evaluates contract's `execute` entry-point.
-    fn execute(&self, deps: DepsMut<Q>, env: Env, info: MessageInfo, msg: Vec<u8>,
-        fork_state: ForkState<C, Q>,) -> AnyResult<Response<C>>;
+    fn execute(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        info: MessageInfo,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `instantiate` entry-point.
-    fn instantiate(&self, deps: DepsMut<Q>, env: Env, info: MessageInfo, msg: Vec<u8>,
-        fork_state: ForkState<C, Q>,) -> AnyResult<Response<C>>;
+    fn instantiate(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        info: MessageInfo,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `query` entry-point.
-    fn query(&self, deps: Deps<Q>, env: Env, msg: Vec<u8>,
-        fork_state: ForkState<C, Q>,) -> AnyResult<Binary>;
+    fn query(
+        &self,
+        deps: Deps<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Binary>;
 
     /// Evaluates contract's `sudo` entry-point.
-    fn sudo(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>,
-        fork_state: ForkState<C, Q>,) -> AnyResult<Response<C>>;
+    fn sudo(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `reply` entry-point.
-    fn reply(&self, deps: DepsMut<Q>, env: Env, msg: Reply,
-        fork_state: ForkState<C, Q>,) -> AnyResult<Response<C>>;
+    fn reply(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Reply,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `migrate` entry-point.
-    fn migrate(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>,
-        fork_state: ForkState<C, Q>,) -> AnyResult<Response<C>>;
-
+    fn migrate(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Returns the provided checksum of the contract's Wasm blob.
     fn checksum(&self) -> Option<Checksum> {
@@ -202,6 +232,24 @@ where
             checksum: None,
         }
     }
+
+    /// This will take a contract that returns `Response<Empty>` and will _upgrade_ it
+    /// to `Response<C>` if needed, to be compatible with a chain-specific extension.
+    pub fn new_with_empty(
+        execute_fn: ContractFn<T1, Empty, E1, Empty>,
+        instantiate_fn: ContractFn<T2, Empty, E2, Empty>,
+        query_fn: QueryFn<T3, E3, Empty>,
+    ) -> Self {
+        Self {
+            execute_fn: customize_contract_fn(execute_fn),
+            instantiate_fn: customize_contract_fn(instantiate_fn),
+            query_fn: customize_query_fn(query_fn),
+            sudo_fn: None,
+            reply_fn: None,
+            migrate_fn: None,
+            checksum: None,
+        }
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -242,6 +290,26 @@ where
         }
     }
 
+    /// Populates [ContractWrapper] with contract's `sudo` entry-point and `Empty` as a custom message.
+    pub fn with_sudo_empty<T4A, E4A>(
+        self,
+        sudo_fn: PermissionedFn<T4A, Empty, E4A, Empty>,
+    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4A, E4A, E5, T6, E6>
+    where
+        T4A: DeserializeOwned + 'static,
+        E4A: Display + Debug + Send + Sync + 'static,
+    {
+        ContractWrapper {
+            execute_fn: self.execute_fn,
+            instantiate_fn: self.instantiate_fn,
+            query_fn: self.query_fn,
+            sudo_fn: Some(customize_permissioned_fn(sudo_fn)),
+            reply_fn: self.reply_fn,
+            migrate_fn: self.migrate_fn,
+            checksum: None,
+        }
+    }
+
     /// Populates [ContractWrapper] with contract's `reply` entry-point and custom message type.
     pub fn with_reply<E5A>(
         self,
@@ -256,6 +324,25 @@ where
             query_fn: self.query_fn,
             sudo_fn: self.sudo_fn,
             reply_fn: Some(Box::new(reply_fn)),
+            migrate_fn: self.migrate_fn,
+            checksum: None,
+        }
+    }
+
+    /// Populates [ContractWrapper] with contract's `reply` entry-point and `Empty` as a custom message.
+    pub fn with_reply_empty<E5A>(
+        self,
+        reply_fn: ReplyFn<Empty, E5A, Empty>,
+    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5A, T6, E6>
+    where
+        E5A: Display + Debug + Send + Sync + 'static,
+    {
+        ContractWrapper {
+            execute_fn: self.execute_fn,
+            instantiate_fn: self.instantiate_fn,
+            query_fn: self.query_fn,
+            sudo_fn: self.sudo_fn,
+            reply_fn: Some(customize_permissioned_fn(reply_fn)),
             migrate_fn: self.migrate_fn,
             checksum: None,
         }
@@ -280,10 +367,143 @@ where
             checksum: None,
         }
     }
+
+    /// Populates [ContractWrapper] with contract's `migrate` entry-point and `Empty` as a custom message.
+    pub fn with_migrate_empty<T6A, E6A>(
+        self,
+        migrate_fn: PermissionedFn<T6A, Empty, E6A, Empty>,
+    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6A, E6A>
+    where
+        T6A: DeserializeOwned + 'static,
+        E6A: Display + Debug + Send + Sync + 'static,
+    {
+        ContractWrapper {
+            execute_fn: self.execute_fn,
+            instantiate_fn: self.instantiate_fn,
+            query_fn: self.query_fn,
+            sudo_fn: self.sudo_fn,
+            reply_fn: self.reply_fn,
+            migrate_fn: Some(customize_permissioned_fn(migrate_fn)),
+            checksum: None,
+        }
+    }
+
     /// Populates [ContractWrapper] with the provided checksum of the contract's Wasm blob.
     pub fn with_checksum(mut self, checksum: Checksum) -> Self {
         self.checksum = Some(checksum);
         self
+    }
+}
+
+fn customize_contract_fn<T, C, E, Q>(
+    raw_fn: ContractFn<T, Empty, E, Empty>,
+) -> ContractClosure<T, C, E, Q>
+where
+    T: DeserializeOwned + 'static,
+    E: Display + Debug + Send + Sync + 'static,
+    C: CustomMsg,
+    Q: CustomQuery + DeserializeOwned,
+{
+    Box::new(
+        move |mut deps: DepsMut<Q>,
+              env: Env,
+              info: MessageInfo,
+              msg: T|
+              -> Result<Response<C>, E> {
+            let deps = decustomize_deps_mut(&mut deps);
+            raw_fn(deps, env, info, msg).map(customize_response::<C>)
+        },
+    )
+}
+
+fn customize_query_fn<T, E, Q>(raw_fn: QueryFn<T, E, Empty>) -> QueryClosure<T, E, Q>
+where
+    T: DeserializeOwned + 'static,
+    E: Display + Debug + Send + Sync + 'static,
+    Q: CustomQuery + DeserializeOwned,
+{
+    Box::new(
+        move |deps: Deps<Q>, env: Env, msg: T| -> Result<Binary, E> {
+            let deps = decustomize_deps(&deps);
+            raw_fn(deps, env, msg)
+        },
+    )
+}
+
+fn customize_permissioned_fn<T, C, E, Q>(
+    raw_fn: PermissionedFn<T, Empty, E, Empty>,
+) -> PermissionedClosure<T, C, E, Q>
+where
+    T: DeserializeOwned + 'static,
+    E: Display + Debug + Send + Sync + 'static,
+    C: CustomMsg,
+    Q: CustomQuery + DeserializeOwned,
+{
+    Box::new(
+        move |mut deps: DepsMut<Q>, env: Env, msg: T| -> Result<Response<C>, E> {
+            let deps = decustomize_deps_mut(&mut deps);
+            raw_fn(deps, env, msg).map(customize_response::<C>)
+        },
+    )
+}
+
+fn decustomize_deps_mut<'a, Q>(deps: &'a mut DepsMut<Q>) -> DepsMut<'a, Empty>
+where
+    Q: CustomQuery + DeserializeOwned,
+{
+    DepsMut {
+        storage: deps.storage,
+        api: deps.api,
+        querier: QuerierWrapper::new(deps.querier.deref()),
+    }
+}
+
+fn decustomize_deps<'a, Q>(deps: &'a Deps<'a, Q>) -> Deps<'a, Empty>
+where
+    Q: CustomQuery + DeserializeOwned,
+{
+    Deps {
+        storage: deps.storage,
+        api: deps.api,
+        querier: QuerierWrapper::new(deps.querier.deref()),
+    }
+}
+
+fn customize_response<C>(resp: Response<Empty>) -> Response<C>
+where
+    C: CustomMsg,
+{
+    let mut customized_resp = Response::<C>::new()
+        .add_submessages(resp.messages.into_iter().map(customize_msg::<C>))
+        .add_events(resp.events)
+        .add_attributes(resp.attributes);
+    customized_resp.data = resp.data;
+    customized_resp
+}
+
+fn customize_msg<C>(msg: SubMsg<Empty>) -> SubMsg<C>
+where
+    C: CustomMsg,
+{
+    SubMsg {
+        id: msg.id,
+        payload: Binary::default(),
+        msg: match msg.msg {
+            CosmosMsg::Wasm(wasm) => CosmosMsg::Wasm(wasm),
+            CosmosMsg::Bank(bank) => CosmosMsg::Bank(bank),
+            #[cfg(feature = "staking")]
+            CosmosMsg::Staking(staking) => CosmosMsg::Staking(staking),
+            #[cfg(feature = "staking")]
+            CosmosMsg::Distribution(distribution) => CosmosMsg::Distribution(distribution),
+            CosmosMsg::Custom(_) => unreachable!(),
+            #[cfg(feature = "stargate")]
+            CosmosMsg::Ibc(ibc) => CosmosMsg::Ibc(ibc),
+            #[cfg(feature = "cosmwasm_2_0")]
+            CosmosMsg::Any(any) => CosmosMsg::Any(any),
+            _ => panic!("unknown message variant {:?}", msg),
+        },
+        gas_limit: msg.gas_limit,
+        reply_on: msg.reply_on,
     }
 }
 
@@ -472,57 +692,5 @@ where
     /// Returns the provided checksum of the contract's Wasm blob.
     fn checksum(&self) -> Option<Checksum> {
         self.checksum
-    }
-}
-
-#[cfg(test)]
-pub mod test {
-
-    use cosmwasm_std::{
-        testing::{message_info, mock_dependencies, mock_env},
-        to_json_binary, Addr, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Response, StdResult,
-    };
-
-    use super::ContractWrapper;
-
-    fn execute(_deps: DepsMut, _env: Env, _info: MessageInfo, _msg: Empty) -> StdResult<Response> {
-        Ok(Response::new())
-    }
-
-    fn query(_deps: Deps, _env: Env, _msg: Empty) -> StdResult<Binary> {
-        to_json_binary("resp")
-    }
-
-    fn instantiate(
-        _deps: DepsMut,
-        _env: Env,
-        _info: MessageInfo,
-        _msg: Empty,
-    ) -> StdResult<Response> {
-        Ok(Response::new())
-    }
-
-    #[test]
-    fn mock_contract() -> anyhow::Result<()> {
-        let contract = ContractWrapper::new(execute, instantiate, query);
-
-        let clone = contract.execute_fn;
-        let second_clone = clone;
-
-        clone(
-            mock_dependencies().as_mut(),
-            mock_env(),
-            message_info(&Addr::unchecked("sender"), &[]),
-            Empty {},
-        )?;
-
-        second_clone(
-            mock_dependencies().as_mut(),
-            mock_env(),
-            message_info(&Addr::unchecked("sender"), &[]),
-            Empty {},
-        )?;
-
-        Ok(())
     }
 }

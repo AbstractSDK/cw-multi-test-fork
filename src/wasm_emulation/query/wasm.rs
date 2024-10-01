@@ -160,48 +160,40 @@ impl<
                 // Then, we get the corresponding wasm contract
 
                 // If the contract data is already defined in our storage, we load it from there
-                let result = if let Some(code) = self
-                    .fork_state
-                    .querier_storage
-                    .wasm
-                    .codes
-                    .get(&(code_id as usize))
-                {
-                    // Local Wasm Contract case
-                    <WasmContract as Contract<ExecC, QueryC>>::query(
-                        code,
-                        deps.as_ref(),
-                        env,
-                        msg.to_vec(),
-                        self.fork_state.clone(),
-                    )
-                } else if let Some(local_contract) = self
-                    .fork_state
-                    .local_state
-                    .contracts
-                    .get(&(code_id as usize))
-                {
-                    // Local Rust Contract case
-                    unsafe {
-                        local_contract.as_ref().unwrap().query(
+                let result =
+                    if let Some(code) = self.fork_state.querier_storage.wasm.codes.get(&code_id) {
+                        // Local Wasm Contract case
+                        <WasmContract as Contract<ExecC, QueryC>>::query(
+                            code,
                             deps.as_ref(),
                             env,
                             msg.to_vec(),
                             self.fork_state.clone(),
                         )
-                    }
-                } else {
-                    // Distant Registered Contract case
-                    // TODO, this should be part of the cache as well
-                    // However, it's not really possible to register that data inside the App, because this is deep in the execution layer
-                    <WasmContract as Contract<ExecC, QueryC>>::query(
-                        &WasmContract::new_distant_code_id(code_id, remote.clone()),
-                        deps.as_ref(),
-                        env,
-                        msg.to_vec(),
-                        self.fork_state.clone(),
-                    )
-                };
+                    } else if let Some(local_contract) =
+                        self.fork_state.local_state.contracts.get(&code_id)
+                    {
+                        // Local Rust Contract case
+                        unsafe {
+                            local_contract.as_ref().unwrap().query(
+                                deps.as_ref(),
+                                env,
+                                msg.to_vec(),
+                                self.fork_state.clone(),
+                            )
+                        }
+                    } else {
+                        // Distant Registered Contract case
+                        // TODO, this should be part of the cache as well
+                        // However, it's not really possible to register that data inside the App, because this is deep in the execution layer
+                        <WasmContract as Contract<ExecC, QueryC>>::query(
+                            &WasmContract::new_distant_code_id(code_id, remote.clone()),
+                            deps.as_ref(),
+                            env,
+                            msg.to_vec(),
+                            self.fork_state.clone(),
+                        )
+                    };
 
                 let result = match result {
                     Err(e) => {
@@ -222,12 +214,7 @@ impl<
                 )
             }
             WasmQuery::CodeInfo { code_id } => {
-                let code_data = self
-                    .fork_state
-                    .querier_storage
-                    .wasm
-                    .code_data
-                    .get(&(*code_id as usize));
+                let code_data = self.fork_state.querier_storage.wasm.code_data.get(code_id);
                 let res = if let Some(code_data) = code_data {
                     cosmwasm_std::CodeInfoResponse::new(
                         *code_id,

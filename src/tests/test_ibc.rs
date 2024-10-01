@@ -1,10 +1,12 @@
+#![cfg(feature = "stargate")]
+
 use crate::test_helpers::ibc;
+use crate::tests::test_app::default_app;
 use crate::{no_init, App, AppBuilder, Executor, IbcAcceptingModule};
 use cosmwasm_std::Empty;
-
 #[test]
 fn default_ibc() {
-    let mut app = App::default();
+    let mut app = default_app();
 
     let creator_addr = app.api().addr_make("creator");
     let code = app.store_code_with_creator(creator_addr, ibc::contract());
@@ -20,7 +22,7 @@ fn default_ibc() {
 
 #[test]
 fn accepting_ibc() {
-    let mut app = AppBuilder::new()
+    let mut app = AppBuilder::default()
         .with_ibc(IbcAcceptingModule::new())
         .build(no_init);
 

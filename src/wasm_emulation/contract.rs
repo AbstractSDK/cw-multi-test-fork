@@ -1,48 +1,38 @@
-use crate::wasm_emulation::api::RealApi;
-use crate::wasm_emulation::input::ReplyArgs;
-use crate::wasm_emulation::instance::instance_from_reused_module;
-use crate::wasm_emulation::output::StorageChanges;
-use crate::wasm_emulation::query::MockQuerier;
-use crate::wasm_emulation::storage::DualStorage;
-use cosmwasm_std::Addr;
-use cosmwasm_std::Checksum;
-use cosmwasm_std::CustomMsg;
-use cosmwasm_std::StdError;
+use crate::wasm_emulation::{
+    api::RealApi,
+    input::{InstanceArguments, ReplyArgs},
+    instance::instance_from_reused_module,
+    output::{StorageChanges, WasmRunnerOutput},
+    query::MockQuerier,
+    storage::DualStorage,
+};
+use cosmwasm_std::{
+    Binary, Checksum, CustomMsg, CustomQuery, Deps, DepsMut, Env, MessageInfo, Order, Reply,
+    Response, StdError, Storage,
+};
 use cosmwasm_vm::{
-    call_execute, call_instantiate, call_migrate, call_query, call_reply, call_sudo, Backend,
-    BackendApi, Instance, InstanceOptions, Querier,
+    call_execute, call_instantiate, call_migrate, call_query, call_reply, call_sudo,
+    internals::check_wasm, Backend, BackendApi, Instance, InstanceOptions, Querier,
 };
 use cw_orch::daemon::queriers::CosmWasm;
-
-use cosmwasm_std::Order;
-use cosmwasm_std::Storage;
 
 use serde::de::DeserializeOwned;
 use wasmer::Engine;
 use wasmer::Module;
 
-use crate::wasm_emulation::input::InstanceArguments;
-use crate::wasm_emulation::output::WasmRunnerOutput;
-
-use cosmwasm_vm::internals::check_wasm;
 use std::collections::HashSet;
 
 use crate::Contract;
 
-use cosmwasm_std::{Binary, CustomQuery, Deps, DepsMut, Env, MessageInfo, Reply, Response};
-
 use anyhow::Result as AnyResult;
 
-use super::channel::RemoteChannel;
-use super::input::ExecuteArgs;
-use super::input::InstantiateArgs;
-use super::input::MigrateArgs;
-use super::input::QueryArgs;
-use super::input::SudoArgs;
-use super::input::WasmFunction;
-use super::instance::create_module;
-use super::output::WasmOutput;
-use super::query::mock_querier::ForkState;
+use super::{
+    channel::RemoteChannel,
+    input::{ExecuteArgs, InstantiateArgs, MigrateArgs, QueryArgs, SudoArgs, WasmFunction},
+    instance::create_module,
+    output::WasmOutput,
+    query::mock_querier::ForkState,
+};
 
 fn apply_storage_changes<ExecC>(storage: &mut dyn Storage, output: &WasmRunnerOutput<ExecC>) {
     // We change all the values with the output

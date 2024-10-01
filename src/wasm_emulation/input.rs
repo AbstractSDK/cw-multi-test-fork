@@ -13,8 +13,8 @@ use super::contract::WasmContract;
 #[derive(Debug, Clone, Default)]
 pub struct WasmStorage {
     pub contracts: HashMap<String, ContractData>,
-    pub codes: BTreeMap<usize, WasmContract>,
-    pub code_data: BTreeMap<usize, CodeData>,
+    pub codes: BTreeMap<u64, WasmContract>,
+    pub code_data: BTreeMap<u64, CodeData>,
     pub storage: Vec<(Vec<u8>, Vec<u8>)>,
 }
 

@@ -1,10 +1,12 @@
+#![cfg(feature = "stargate")]
+
 use crate::test_helpers::stargate;
+use crate::tests::test_app::default_app;
 use crate::{no_init, App, AppBuilder, Executor, StargateAccepting};
 use cosmwasm_std::Empty;
-
 #[test]
 fn default_failing_stargate_handler_should_work() {
-    let mut app = App::default();
+    let mut app = default_app();
 
     // store the contract
     let creator_addr = app.api().addr_make("creator");

@@ -1,10 +1,9 @@
 //! AppBuilder helps you set up your test blockchain environment step by step [App].
-
+use crate::featured::staking::{Distribution, DistributionKeeper, StakeKeeper, Staking};
 use crate::wasm_emulation::channel::RemoteChannel;
 use crate::{
-    App, Bank, BankKeeper, Distribution, DistributionKeeper, FailingModule, Gov, GovFailingModule,
-    Ibc, IbcFailingModule, Module, Router, StakeKeeper, Staking, Stargate, StargateFailing, Wasm,
-    WasmKeeper,
+    App, Bank, BankKeeper, FailingModule, Gov, GovFailingModule, Ibc, IbcFailingModule, Module,
+    Router, Stargate, StargateFailing, Wasm, WasmKeeper,
 };
 use cosmwasm_std::testing::{mock_env, MockApi, MockStorage};
 use cosmwasm_std::{Api, BlockInfo, CustomMsg, CustomQuery, Empty, Storage};
@@ -17,7 +16,7 @@ use std::fmt::Debug;
 ///
 /// ```
 /// # use cosmwasm_std::Empty;
-/// # use cw_multi_test::{BasicAppBuilder, FailingModule, Module, no_init};
+/// # use cw_multi_test::{no_init, BasicAppBuilder, FailingModule, Module};
 /// # type MyHandler = FailingModule<Empty, Empty, Empty>;
 /// # type MyExecC = Empty;
 /// # type MyQueryC = Empty;
@@ -592,10 +591,9 @@ where
         self
     }
 
-    #[allow(clippy::type_complexity)]
-    /// Builds final `App`. At this point all components type have to be properly related to each
-    /// other. If there are some generics related compilation errors, make sure that all components
-    /// are properly relating to each other.
+    /// Builds the final [App] with initialization.
+    ///
+    /// At this point all component types have to be properly related to each other.
     pub fn build<F>(
         self,
         init_fn: F,
@@ -613,23 +611,22 @@ where
         StargateT: Stargate,
         F: FnOnce(
             &mut Router<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>,
-            &dyn Api,
+            &ApiT,
             &mut dyn Storage,
         ),
     {
-        let router = Router {
-            wasm: self.wasm,
-            bank: self.bank,
-            custom: self.custom,
-            staking: self.staking,
-            distribution: self.distribution,
-            ibc: self.ibc,
-            gov: self.gov,
-            stargate: self.stargate,
-        };
-
+        // build the final application
         let mut app = App {
-            router,
+            router: Router {
+                wasm: self.wasm,
+                bank: self.bank,
+                custom: self.custom,
+                staking: self.staking,
+                distribution: self.distribution,
+                ibc: self.ibc,
+                gov: self.gov,
+                stargate: self.stargate,
+            },
             api: self.api,
             block: self.block,
             storage: self.storage,
@@ -637,7 +634,9 @@ where
                 .remote
                 .expect("Remote has to be defined to use clone-testing"),
         };
+        // execute initialization provided by the caller
         app.init_modules(init_fn);
+        // return already initialized application
         app
     }
 }

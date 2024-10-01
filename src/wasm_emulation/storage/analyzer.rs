@@ -1,7 +1,8 @@
 use crate::{
+    featured::staking::{Distribution, Staking},
     prefixed_storage::{decode_length, to_length_prefixed, CONTRACT_STORAGE_PREFIX},
     wasm_emulation::channel::RemoteChannel,
-    BankKeeper, Distribution, Gov, Ibc, Module, Staking, WasmKeeper,
+    BankKeeper, Gov, Ibc, Module, WasmKeeper,
 };
 use cosmwasm_std::{Addr, Api, Coin, CustomMsg, CustomQuery, Storage};
 use cw_orch::prelude::BankQuerier;

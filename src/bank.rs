@@ -5,13 +5,15 @@ use crate::module::Module;
 use crate::prefixed_storage::{prefixed, prefixed_read};
 use crate::queries::bank::BankRemoteQuerier;
 use crate::wasm_emulation::channel::RemoteChannel;
-use crate::wasm_emulation::input::BankStorage;
 use crate::wasm_emulation::query::AllBankQuerier;
 use cosmwasm_std::{
     coin, to_json_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery,
-    Binary, BlockInfo, Coin, DenomMetadata, Event, Order, Querier, Storage,
+    Binary, BlockInfo, Coin, DenomMetadata, Event, Querier, Storage,
 };
-use cosmwasm_std::{StdResult, Uint128};
+#[cfg(feature = "cosmwasm_1_3")]
+use cosmwasm_std::{AllDenomMetadataResponse, DenomMetadataResponse};
+#[cfg(feature = "cosmwasm_1_1")]
+use cosmwasm_std::{Order, StdResult, SupplyResponse, Uint128};
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
 use itertools::Itertools;
@@ -69,6 +71,10 @@ impl BankKeeper {
         self
     }
 
+    pub fn set_remote(&mut self, remote: RemoteChannel) {
+        self.remote = Some(remote);
+    }
+
     /// Administration function for adjusting bank accounts in genesis.
     pub fn init_balance(
         &self,
@@ -115,6 +121,7 @@ impl BankKeeper {
         }
     }
 
+    #[cfg(feature = "cosmwasm_1_1")]
     fn get_supply(&self, bank_storage: &dyn Storage, denom: String) -> AnyResult<Coin> {
         let supply: Uint128 = BALANCES
             .range(bank_storage, None, None, Order::Ascending)
@@ -297,13 +304,25 @@ impl Module for BankKeeper {
     }
 }
 
-impl AllBankQuerier for BankKeeper {
-    fn query_all(&self, storage: &dyn Storage) -> AnyResult<BankStorage> {
-        let bank_storage = prefixed_read(storage, NAMESPACE_BANK);
-        let balances: Result<Vec<_>, _> = BALANCES
-            .range(&bank_storage, None, None, Order::Ascending)
-            .collect();
-        Ok(BankStorage { storage: balances? })
+pub mod storage_querier {
+    use anyhow::Result as AnyResult;
+    use cosmwasm_std::{Order, Storage};
+
+    use crate::{
+        prefixed_storage::prefixed_read,
+        wasm_emulation::{input::BankStorage, query::AllBankQuerier},
+    };
+
+    use super::{BankKeeper, BALANCES, NAMESPACE_BANK};
+
+    impl AllBankQuerier for BankKeeper {
+        fn query_all(&self, storage: &dyn Storage) -> AnyResult<BankStorage> {
+            let bank_storage = prefixed_read(storage, NAMESPACE_BANK);
+            let balances: Result<Vec<_>, _> = BALANCES
+                .range(&bank_storage, None, None, Order::Ascending)
+                .collect();
+            Ok(BankStorage { storage: balances? })
+        }
     }
 }
 
@@ -312,6 +331,7 @@ mod test {
     use super::*;
 
     use crate::app::MockRouter;
+    use crate::tests::remote_channel;
     use cosmwasm_std::testing::{mock_env, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::{coins, from_json, Empty, StdError};
 
@@ -347,7 +367,7 @@ mod test {
         let norm = vec![coin(20, "btc"), coin(100, "eth")];
 
         // set money
-        let bank = BankKeeper::new();
+        let bank = BankKeeper::new().with_remote(remote_channel());
         bank.init_balance(&mut store, &owner, init_funds).unwrap();
         let bank_storage = prefixed_read(&store, NAMESPACE_BANK);
 
@@ -441,7 +461,7 @@ mod test {
         let rcpt_funds = vec![coin(5, "btc")];
 
         // set money
-        let bank = BankKeeper::new();
+        let bank = BankKeeper::new().with_remote(remote_channel());
         bank.init_balance(&mut store, &owner, init_funds).unwrap();
         bank.init_balance(&mut store, &rcpt, rcpt_funds).unwrap();
 
@@ -493,7 +513,7 @@ mod test {
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
 
         // set money
-        let bank = BankKeeper::new();
+        let bank = BankKeeper::new().with_remote(remote_channel());
         bank.init_balance(&mut store, &owner, init_funds).unwrap();
 
         // burn both tokens
@@ -533,7 +553,7 @@ mod test {
         let mut store = MockStorage::new();
         let block = mock_env().block;
         let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
-        let bank = BankKeeper::new();
+        let bank = BankKeeper::new().with_remote(remote_channel());
         // set metadata for Ether
         let denom_eth_name = "eth".to_string();
         bank.set_denom_metadata(
@@ -561,7 +581,7 @@ mod test {
         let mut store = MockStorage::new();
         let block = mock_env().block;
         let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
-        let bank = BankKeeper::new();
+        let bank = BankKeeper::new().with_remote(remote_channel());
         // set metadata for Bitcoin
         let denom_btc_name = "btc".to_string();
         bank.set_denom_metadata(
@@ -604,7 +624,7 @@ mod test {
         let init_funds = vec![coin(5000, "atom"), coin(100, "eth")];
 
         // set money
-        let bank = BankKeeper::new();
+        let bank = BankKeeper::new().with_remote(remote_channel());
         bank.init_balance(&mut store, &owner, init_funds).unwrap();
 
         // can send normal amounts

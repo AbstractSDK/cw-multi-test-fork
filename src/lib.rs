@@ -134,15 +134,17 @@ mod contracts;
 pub mod custom_handler;
 pub mod error;
 mod executor;
+mod featured;
 mod gov;
 mod ibc;
 mod module;
 pub(crate) mod prefixed_storage;
 pub mod queries;
+#[cfg(feature = "staking")]
 mod staking;
 mod stargate;
 mod test_helpers;
-mod tests;
+pub(crate) mod tests;
 mod transactions;
 mod wasm;
 pub mod wasm_emulation;
@@ -162,6 +164,7 @@ pub use crate::executor::{AppResponse, Executor};
 pub use crate::gov::{Gov, GovAcceptingModule, GovFailingModule};
 pub use crate::ibc::{Ibc, IbcAcceptingModule, IbcFailingModule};
 pub use crate::module::{AcceptingModule, FailingModule, Module};
+#[cfg(feature = "staking")]
 pub use crate::staking::{
     Distribution, DistributionKeeper, StakeKeeper, Staking, StakingInfo, StakingSudo,
 };

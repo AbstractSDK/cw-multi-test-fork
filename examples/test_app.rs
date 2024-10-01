@@ -35,7 +35,7 @@ pub fn test() -> anyhow::Result<()> {
         .with_wasm(wasm)
         .with_bank(bank)
         .with_remote(remote_channel)
-        .build(|_, _, _| {})?;
+        .build(|_, _, _| {});
 
     // Then we send a message to the blockchain through the app
     let sender = "terra17c6ts8grcfrgquhj3haclg44le8s7qkx6l2yx33acguxhpf000xqhnl3je";

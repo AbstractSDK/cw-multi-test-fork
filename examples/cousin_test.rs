@@ -5,9 +5,8 @@ use std::path::Path;
 
 use anyhow::Result as AnyResult;
 use clone_cw_multi_test::{
-    addons::{MockAddressGenerator, MockApiBech32},
-    wasm_emulation::channel::RemoteChannel,
-    App, AppBuilder, BankKeeper, ContractWrapper, Executor, WasmKeeper,
+    wasm_emulation::channel::RemoteChannel, App, AppBuilder, BankKeeper, ContractWrapper, Executor,
+    MockApiBech32, WasmKeeper,
 };
 use cosmwasm_std::{Addr, Empty};
 use counter::msg::{ExecuteMsg, GetCountResponse, QueryMsg};
@@ -76,9 +75,7 @@ fn test() -> AnyResult<()> {
         chain.network_info.pub_address_prefix,
     )?;
 
-    let wasm = WasmKeeper::<Empty, Empty>::new()
-        .with_remote(remote_channel.clone())
-        .with_address_generator(MockAddressGenerator);
+    let wasm = WasmKeeper::<Empty, Empty>::new().with_remote(remote_channel.clone());
 
     let bank = BankKeeper::new().with_remote(remote_channel.clone());
 
@@ -88,7 +85,7 @@ fn test() -> AnyResult<()> {
         .with_bank(bank)
         .with_remote(remote_channel)
         .with_api(MockApiBech32::new(chain.network_info.pub_address_prefix))
-        .build(|_, _, _| {})?;
+        .build(|_, _, _| {});
 
     let sender = Addr::unchecked(SENDER);
     let rust_code_id = app.store_code(Box::new(rust_contract));
