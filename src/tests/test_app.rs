@@ -3,11 +3,14 @@ use crate::error::{bail, AnyResult};
 use crate::featured::staking::{Distribution, Staking};
 use crate::test_helpers::echo::EXECUTE_REPLY_BASE_ID;
 use crate::test_helpers::{caller, echo, error, hackatom, payout, reflect, CustomHelperMsg};
+use crate::tests::{default_app, remote_channel};
 use crate::transactions::{transactional, StorageTransaction};
 use crate::wasm::ContractData;
+use crate::wasm_emulation::channel::RemoteChannel;
+use crate::wasm_emulation::query::ContainsRemote;
 use crate::{
     custom_app, next_block, no_init, App, AppResponse, Bank, CosmosRouter, Executor, Module,
-    Router, Wasm, WasmSudo,
+    Router, Wasm, WasmKeeper, WasmSudo,
 };
 use crate::{AppBuilder, IntoAddr};
 use cosmwasm_std::testing::{mock_env, MockQuerier};
@@ -17,6 +20,7 @@ use cosmwasm_std::{
     OverflowError, OverflowOperation, Querier, Reply, StdError, StdResult, Storage, SubMsg,
     WasmMsg,
 };
+use cw_orch::daemon::RUNTIME;
 use cw_storage_plus::Item;
 use cw_utils::parse_instantiate_response_data;
 use schemars::JsonSchema;
@@ -99,7 +103,7 @@ fn addr_make(addr: &str) -> Addr {
 
 #[test]
 fn update_block() {
-    let mut app = App::default();
+    let mut app = default_app();
     let BlockInfo { time, height, .. } = app.block_info();
     app.update_block(next_block);
     assert_eq!(time.plus_seconds(5), app.block_info().time);
@@ -114,7 +118,7 @@ fn multi_level_bank_cache() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = App::new(|router, _, storage| {
+    let mut app = App::new(remote_channel(), |router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
@@ -170,10 +174,9 @@ fn multi_level_bank_cache() {
 }
 
 #[test]
-#[cfg(feature = "cosmwasm_1_2")]
 fn duplicate_contract_code() {
     // set up the multi-test application
-    let mut app = App::default();
+    let mut app = default_app();
 
     // store the original contract code
     let code_id = app.store_code(payout::contract());
@@ -199,7 +202,7 @@ fn send_tokens() {
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
     let rcpt_funds = vec![coin(5, "btc")];
-    let mut app = App::new(|router, _, storage| {
+    let mut app = App::new(remote_channel(), |router, _, storage| {
         // initialization moved to App construction
         router
             .bank
@@ -246,7 +249,7 @@ fn simple_contract() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = App::new(|router, _, storage| {
+    let mut app = App::new(remote_channel(), |router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
@@ -335,12 +338,15 @@ fn reflect_success() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
-        router
-            .bank
-            .init_balance(storage, &owner_addr, init_funds)
-            .unwrap();
-    });
+    let mut app =
+        custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
+            router
+                .bank
+                .init_balance(storage, &owner_addr, init_funds)
+                .unwrap();
+            router.bank.set_remote(remote_channel());
+            router.wasm.set_remote(remote_channel());
+        });
 
     // set up payout contract
     let payout_id = app.store_code(payout::contract());
@@ -442,12 +448,15 @@ fn reflect_error() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
-        router
-            .bank
-            .init_balance(storage, &owner, init_funds)
-            .unwrap();
-    });
+    let mut app =
+        custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
+            router
+                .bank
+                .init_balance(storage, &owner, init_funds)
+                .unwrap();
+            router.bank.set_remote(remote_channel());
+            router.wasm.set_remote(remote_channel());
+        });
 
     // set up reflect contract
     let reflect_id = app.store_code(reflect::contract());
@@ -539,7 +548,7 @@ fn sudo_works() {
 
     // set personal balance
     let init_funds = vec![coin(100, "eth")];
-    let mut app = App::new(|router, _, storage| {
+    let mut app = App::new(remote_channel(), |router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
@@ -603,12 +612,15 @@ fn reflect_sub_message_reply_works() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
-        router
-            .bank
-            .init_balance(storage, &owner, init_funds)
-            .unwrap();
-    });
+    let mut app =
+        custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
+            router
+                .bank
+                .init_balance(storage, &owner, init_funds)
+                .unwrap();
+            router.bank.set_remote(remote_channel());
+            router.wasm.set_remote(remote_channel());
+        });
 
     // set up reflect contract
     let reflect_id = app.store_code(reflect::contract());
@@ -694,7 +706,7 @@ fn send_update_admin_works() {
     // update admin succeeds if admin
     // update admin fails if not (new) admin
     // check admin set properly
-    let mut app = App::default();
+    let mut app = default_app();
 
     let owner = addr_make("owner");
     let owner2 = addr_make("owner2");
@@ -766,7 +778,7 @@ fn sent_wasm_migration_works() {
 
     // set personal balance
     let init_funds = coins(30, "btc");
-    let mut app = App::new(|router, _, storage| {
+    let mut app = App::new(remote_channel(), |router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
@@ -841,7 +853,7 @@ fn sent_funds_properly_visible_on_execution() {
 
     // set personal balance
     let init_funds = coins(30, "btc");
-    let mut app = App::new(|router, _, storage| {
+    let mut app = App::new(remote_channel(), |router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
@@ -1064,7 +1076,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn no_submsg() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1091,7 +1103,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn single_submsg() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1124,7 +1136,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn single_submsg_no_reply() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1152,7 +1164,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn single_no_submsg_data() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1180,7 +1192,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn single_no_top_level_data() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1217,12 +1229,15 @@ mod reply_data_overwrite {
 
         // set personal balance
         let init_funds = coins(100, "tgd");
-        let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
-            router
-                .bank
-                .init_balance(storage, &owner, init_funds)
-                .unwrap();
-        });
+        let mut app =
+            custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
+                router
+                    .bank
+                    .init_balance(storage, &owner, init_funds)
+                    .unwrap();
+                router.bank.set_remote(remote_channel());
+                router.wasm.set_remote(remote_channel());
+            });
 
         // set up reflect contract
         let reflect_id = app.store_code(reflect::contract());
@@ -1269,7 +1284,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn multiple_submsg() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1312,7 +1327,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn multiple_submsg_no_reply() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1345,7 +1360,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn multiple_submsg_mixed() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1383,7 +1398,7 @@ mod reply_data_overwrite {
 
     #[test]
     fn nested_submsg() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1436,7 +1451,7 @@ mod response_validation {
 
     #[test]
     fn empty_attribute_key() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1467,7 +1482,7 @@ mod response_validation {
 
     #[test]
     fn empty_attribute_value_should_work() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
         let code_id = app.store_code(echo::contract());
@@ -1495,7 +1510,7 @@ mod response_validation {
 
     #[test]
     fn empty_event_attribute_key() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1525,7 +1540,7 @@ mod response_validation {
 
     #[test]
     fn empty_event_attribute_value_should_work() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
         let code_id = app.store_code(echo::contract());
@@ -1552,7 +1567,7 @@ mod response_validation {
 
     #[test]
     fn too_short_event_type() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1582,12 +1597,11 @@ mod response_validation {
 mod contract_instantiation {
 
     #[test]
-    #[cfg(feature = "cosmwasm_1_2")]
     fn instantiate2_works() {
         use super::*;
 
         // prepare application and actors
-        let mut app = App::default();
+        let mut app = default_app();
         let sender = app.api().addr_make("sender");
         let creator = app.api().addr_make("creator");
 
@@ -1623,10 +1637,9 @@ mod contract_instantiation {
 mod wasm_queries {
 
     #[test]
-    #[cfg(feature = "cosmwasm_1_2")]
     fn query_existing_code_info() {
         use super::*;
-        let mut app = App::default();
+        let mut app = default_app();
         let creator = app.api().addr_make("creator");
         let code_id = app.store_code_with_creator(creator.clone(), echo::contract());
         let code_info_response = app.wrap().query_wasm_code_info(code_id).unwrap();
@@ -1636,10 +1649,9 @@ mod wasm_queries {
     }
 
     #[test]
-    #[cfg(feature = "cosmwasm_1_2")]
     fn query_non_existing_code_info() {
         use super::*;
-        let app = App::default();
+        let app = default_app();
         assert_eq!(
             "Generic error: Querier contract error: code id: invalid",
             app.wrap().query_wasm_code_info(0).unwrap_err().to_string()
@@ -1661,6 +1673,7 @@ mod custom_messages {
 
         let mut app = AppBuilder::new_custom()
             .with_custom(custom_handler)
+            .with_remote(remote_channel())
             .build(no_init);
 
         let sender = app.api().addr_make("sender");
@@ -1705,12 +1718,15 @@ mod protobuf_wrapped_data {
 
         // set personal balance
         let init_funds = vec![coin(20, "btc")];
-        let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
-            router
-                .bank
-                .init_balance(storage, &owner, init_funds)
-                .unwrap();
-        });
+        let mut app =
+            custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
+                router
+                    .bank
+                    .init_balance(storage, &owner, init_funds)
+                    .unwrap();
+                router.bank.set_remote(remote_channel());
+                router.wasm.set_remote(remote_channel());
+            });
 
         // set up reflect contract
         let code_id = app.store_code(reflect::contract());
@@ -1739,7 +1755,7 @@ mod protobuf_wrapped_data {
 
     #[test]
     fn instantiate_with_data_works() {
-        let mut app = BasicApp::new(no_init);
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1769,7 +1785,7 @@ mod protobuf_wrapped_data {
 
     #[test]
     fn instantiate_with_reply_works() {
-        let mut app = BasicApp::new(no_init);
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1822,7 +1838,7 @@ mod protobuf_wrapped_data {
 
     #[test]
     fn execute_wrapped_properly() {
-        let mut app = BasicApp::new(no_init);
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1849,7 +1865,7 @@ mod errors {
 
     #[test]
     fn simple_instantiation() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
 
@@ -1876,7 +1892,7 @@ mod errors {
 
     #[test]
     fn simple_call() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
         let random_addr = app.api().addr_make("random");
@@ -1909,7 +1925,7 @@ mod errors {
 
     #[test]
     fn nested_call() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner = app.api().addr_make("owner");
         let random_addr = app.api().addr_make("random");
@@ -1951,7 +1967,7 @@ mod errors {
 
     #[test]
     fn double_nested_call() {
-        let mut app = App::default();
+        let mut app = default_app();
 
         let owner_addr = app.api().addr_make("owner");
         let random_addr = app.api().addr_make("random");

@@ -4,6 +4,8 @@ use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
 use std::ops::{Deref, DerefMut};
 
+use crate::{default_app, remote_channel};
+
 const NAMESPACE_BANK: &[u8] = b"bank";
 const BALANCES: Map<&Addr, NativeBalance> = Map::new("balances");
 
@@ -14,7 +16,7 @@ fn reading_bank_storage_should_work() {
 
     // set balances
     let init_funds = vec![coin(1, "BTC"), coin(2, "ETH")];
-    let app = App::new(|router, _, storage| {
+    let app = App::new(remote_channel(), |router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
@@ -32,7 +34,7 @@ fn writing_bank_storage_should_work() {
     // prepare balance owner
     let owner_addr = "owner".into_addr();
 
-    let mut app = App::default();
+    let mut app = default_app();
     // get the mutable prefixed storage for bank
     let mut storage = app.prefixed_storage_mut(NAMESPACE_BANK);
 

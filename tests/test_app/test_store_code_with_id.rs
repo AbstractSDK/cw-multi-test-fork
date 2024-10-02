@@ -1,9 +1,9 @@
-use crate::test_contracts::counter;
+use crate::{default_app, test_contracts::counter};
 use cw_multi_test::App;
 
 #[test]
 fn storing_code_with_custom_identifier_should_work() {
-    let mut app = App::default();
+    let mut app = default_app();
     let creator = app.api().addr_make("prometheus");
     assert_eq!(
         10,
@@ -19,7 +19,7 @@ fn storing_code_with_custom_identifier_should_work() {
 
 #[test]
 fn zero_code_id_is_not_allowed() {
-    let mut app = App::default();
+    let mut app = default_app();
     let creator = app.api().addr_make("prometheus");
     app.store_code_with_id(creator, 0, counter::contract())
         .unwrap_err();
@@ -27,7 +27,7 @@ fn zero_code_id_is_not_allowed() {
 
 #[test]
 fn storing_code_with_consecutive_identifiers() {
-    let mut app = App::default();
+    let mut app = default_app();
     let creator = app.api().addr_make("prometheus");
     assert_eq!(
         11,
@@ -41,7 +41,7 @@ fn storing_code_with_consecutive_identifiers() {
 
 #[test]
 fn storing_with_the_same_id_is_not_allowed() {
-    let mut app = App::default();
+    let mut app = default_app();
     let creator = app.api().addr_make("prometheus");
     let code_id = 2056;
     assert_eq!(
@@ -56,7 +56,7 @@ fn storing_with_the_same_id_is_not_allowed() {
 #[test]
 #[should_panic(expected = "no more code identifiers available")]
 fn no_more_identifiers_available() {
-    let mut app = App::default();
+    let mut app = default_app();
     let creator = app.api().addr_make("prometheus");
     assert_eq!(
         u64::MAX,

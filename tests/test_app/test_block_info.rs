@@ -2,10 +2,12 @@ use cosmwasm_std::testing::mock_env;
 use cosmwasm_std::{BlockInfo, Timestamp};
 use cw_multi_test::{next_block, App};
 
+use crate::default_app;
+
 #[test]
 fn default_block_info_should_work() {
     let env = mock_env();
-    let app = App::default();
+    let app = default_app();
     let block = app.block_info();
     assert_eq!(env.block.chain_id, block.chain_id);
     assert_eq!(env.block.height, block.height);
@@ -19,7 +21,7 @@ fn setting_block_info_should_work() {
         height: 273_094,
         time: Timestamp::default().plus_days(366),
     };
-    let mut app = App::default();
+    let mut app = default_app();
     app.set_block(initial_block.clone());
     let block = app.block_info();
     assert_eq!(initial_block.chain_id, block.chain_id);
@@ -30,7 +32,7 @@ fn setting_block_info_should_work() {
 #[test]
 fn incrementing_block_info_should_work() {
     let env = mock_env();
-    let mut app = App::default();
+    let mut app = default_app();
     app.update_block(next_block);
     let block = app.block_info();
     assert_eq!(env.block.chain_id, block.chain_id);

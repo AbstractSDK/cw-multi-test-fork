@@ -2,9 +2,11 @@ use cosmwasm_std::testing::MockStorage;
 use cosmwasm_std::Empty;
 use cw_multi_test::{App, FailingModule, Module};
 
+use crate::default_app;
+
 /// Utility function for asserting outputs returned from failing module.
 fn assert_results(failing_module: FailingModule<Empty, Empty, Empty>) {
-    let app = App::default();
+    let app = default_app();
     let sender_addr = app.api().addr_make("sender");
     let empty_msg = Empty {};
     let mut storage = MockStorage::default();

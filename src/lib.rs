@@ -120,7 +120,7 @@
 //!
 //! (tbd)
 
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::missing_crate_level_docs)]
 
@@ -138,14 +138,19 @@ mod featured;
 mod gov;
 mod ibc;
 mod module;
-mod prefixed_storage;
+pub(crate) mod prefixed_storage;
 #[cfg(feature = "staking")]
 mod staking;
 mod stargate;
 mod test_helpers;
-mod tests;
+pub(crate) mod tests;
 mod transactions;
 mod wasm;
+
+// --- Clone Testing Modules --- //
+pub mod queries;
+pub mod wasm_emulation;
+// --- End --- //
 
 pub use crate::addresses::{
     AddressGenerator, IntoAddr, IntoBech32, IntoBech32m, SimpleAddressGenerator,
@@ -168,3 +173,4 @@ pub use crate::staking::{
 };
 pub use crate::stargate::{Stargate, StargateAccepting, StargateFailing};
 pub use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
+pub use crate::wasm::{LOCAL_RUST_CODE_OFFSET, LOCAL_WASM_CODE_OFFSET};

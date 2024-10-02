@@ -1,12 +1,12 @@
 #![cfg(feature = "stargate")]
 
 use crate::test_helpers::gov;
+use crate::tests::test_app::default_app;
 use crate::{no_init, App, AppBuilder, Executor, GovAcceptingModule};
 use cosmwasm_std::Empty;
-
 #[test]
 fn default_gov() {
-    let mut app = App::default();
+    let mut app = default_app();
 
     let creator_addr = app.api().addr_make("creator");
     let code = app.store_code_with_creator(creator_addr, gov::contract());

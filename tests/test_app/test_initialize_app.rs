@@ -1,13 +1,15 @@
 use cw_multi_test::App;
 use cw_storage_plus::Map;
 
+use crate::default_app;
+
 const USER: &str = "user";
 const USERS: Map<&str, u64> = Map::new("users");
 const AMOUNT: u64 = 100;
 
 #[test]
 fn initializing_app_should_work() {
-    let mut app = App::default();
+    let mut app = default_app();
     let mut amount = 0;
     app.init_modules(|_router, api, storage| {
         USERS

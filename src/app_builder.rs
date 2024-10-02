@@ -1,6 +1,6 @@
 //! AppBuilder helps you set up your test blockchain environment step by step [App].
-
 use crate::featured::staking::{Distribution, DistributionKeeper, StakeKeeper, Staking};
+use crate::wasm_emulation::channel::RemoteChannel;
 use crate::{
     App, Bank, BankKeeper, FailingModule, Gov, GovFailingModule, Ibc, IbcFailingModule, Module,
     Router, Stargate, StargateFailing, Wasm, WasmKeeper,
@@ -54,6 +54,7 @@ pub struct AppBuilder<Bank, Api, Storage, Custom, Wasm, Staking, Distr, Ibc, Gov
     distribution: Distr,
     ibc: Ibc,
     gov: Gov,
+    remote: Option<RemoteChannel>,
     stargate: Stargate,
 }
 
@@ -104,6 +105,7 @@ impl
             ibc: IbcFailingModule::new(),
             gov: GovFailingModule::new(),
             stargate: StargateFailing,
+            remote: None,
         }
     }
 }
@@ -140,6 +142,7 @@ where
             ibc: IbcFailingModule::new(),
             gov: GovFailingModule::new(),
             stargate: StargateFailing,
+            remote: None,
         }
     }
 }
@@ -149,6 +152,8 @@ impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
 where
     CustomT: Module,
     WasmT: Wasm<CustomT::ExecT, CustomT::QueryT>,
+    BankT: Bank,
+    CustomT::QueryT: CustomQuery,
 {
     /// Overwrites the default wasm executor.
     ///
@@ -157,7 +162,7 @@ where
     /// done on final building.
     pub fn with_wasm<NewWasm: Wasm<CustomT::ExecT, CustomT::QueryT>>(
         self,
-        wasm: NewWasm,
+        mut wasm: NewWasm,
     ) -> AppBuilder<BankT, ApiT, StorageT, CustomT, NewWasm, StakingT, DistrT, IbcT, GovT, StargateT>
     {
         let AppBuilder {
@@ -170,10 +175,13 @@ where
             distribution,
             ibc,
             gov,
+            remote,
             stargate,
             ..
         } = self;
-
+        if let Some(remote) = remote.as_ref() {
+            wasm.set_remote(remote.clone());
+        }
         AppBuilder {
             api,
             block,
@@ -185,6 +193,7 @@ where
             distribution,
             ibc,
             gov,
+            remote,
             stargate,
         }
     }
@@ -192,7 +201,7 @@ where
     /// Overwrites the default bank interface.
     pub fn with_bank<NewBank: Bank>(
         self,
-        bank: NewBank,
+        mut bank: NewBank,
     ) -> AppBuilder<NewBank, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>
     {
         let AppBuilder {
@@ -205,10 +214,14 @@ where
             distribution,
             ibc,
             gov,
+            remote,
             stargate,
             ..
         } = self;
 
+        if let Some(remote) = remote.as_ref() {
+            bank.set_remote(remote.clone());
+        }
         AppBuilder {
             api,
             block,
@@ -221,6 +234,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -241,6 +255,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
             ..
         } = self;
 
@@ -256,6 +271,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -276,6 +292,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
             ..
         } = self;
 
@@ -291,6 +308,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -315,6 +333,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
             ..
         } = self;
 
@@ -330,6 +349,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -350,6 +370,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
             ..
         } = self;
 
@@ -365,6 +386,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -395,6 +417,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
             ..
         } = self;
 
@@ -410,6 +433,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -435,6 +459,7 @@ where
             bank,
             distribution,
             gov,
+            remote,
             stargate,
             ..
         } = self;
@@ -451,6 +476,7 @@ where
             distribution,
             ibc,
             gov,
+            remote,
         }
     }
 
@@ -470,6 +496,7 @@ where
             bank,
             distribution,
             ibc,
+            remote,
             stargate,
             ..
         } = self;
@@ -486,7 +513,20 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
+    }
+
+    /// Sets the chain of the app
+    pub fn with_remote(
+        mut self,
+        remote: RemoteChannel,
+    ) -> AppBuilder<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>
+    {
+        self.remote = Some(remote.clone());
+        self.wasm.set_remote(remote.clone());
+        self.bank.set_remote(remote.clone());
+        self
     }
 
     /// Overwrites the default stargate interface.
@@ -506,6 +546,7 @@ where
             distribution,
             ibc,
             gov,
+            remote,
             ..
         } = self;
 
@@ -521,6 +562,7 @@ where
             ibc,
             gov,
             stargate,
+            remote,
         }
     }
 
@@ -569,6 +611,9 @@ where
             api: self.api,
             block: self.block,
             storage: self.storage,
+            remote: self
+                .remote
+                .expect("Remote has to be defined to use clone-testing"),
         };
         // execute initialization provided by the caller
         app.init_modules(init_fn);

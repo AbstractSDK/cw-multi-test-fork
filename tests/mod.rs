@@ -1,5 +1,9 @@
 #![cfg(test)]
 
+use clone_cw_multi_test::wasm_emulation::channel::RemoteChannel;
+use clone_cw_multi_test::{no_init, App};
+use cw_orch::daemon::RUNTIME;
+
 mod test_api;
 mod test_app;
 mod test_app_builder;
@@ -12,15 +16,17 @@ mod test_prefixed_storage;
 mod test_staking;
 mod test_wasm;
 
+extern crate clone_cw_multi_test as cw_multi_test;
+
 mod test_contracts {
 
     pub mod counter {
+        use clone_cw_multi_test::{Contract, ContractWrapper};
         use cosmwasm_schema::cw_serde;
         use cosmwasm_std::{
             to_json_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Response, StdError,
             WasmMsg,
         };
-        use cw_multi_test::{Contract, ContractWrapper};
         use cw_storage_plus::Item;
 
         const COUNTER: Item<u64> = Item::new("counter");
@@ -79,4 +85,20 @@ mod test_contracts {
             )
         }
     }
+}
+
+use cw_orch::{daemon::networks::XION_TESTNET_1, prelude::ChainInfo};
+pub const CHAIN: ChainInfo = XION_TESTNET_1;
+pub fn remote_channel() -> RemoteChannel {
+    RemoteChannel::new(
+        &RUNTIME,
+        CHAIN.grpc_urls,
+        CHAIN.chain_id,
+        CHAIN.network_info.pub_address_prefix,
+    )
+    .unwrap()
+}
+
+pub fn default_app() -> App {
+    App::new(remote_channel(), no_init)
 }

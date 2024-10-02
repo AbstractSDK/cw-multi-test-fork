@@ -1,5 +1,6 @@
 use crate::custom_handler::CachingCustomHandler;
 use crate::test_helpers::CustomHelperMsg;
+use crate::tests::default_app;
 use crate::{App, Module};
 use cosmwasm_std::testing::MockStorage;
 use cosmwasm_std::Empty;
@@ -10,7 +11,7 @@ use cosmwasm_std::Empty;
 #[test]
 fn custom_handler_works() {
     // prepare needed tools
-    let app = App::default();
+    let app = default_app();
     let mut storage = MockStorage::default();
 
     // create custom handler
@@ -66,7 +67,7 @@ fn custom_handler_works() {
 #[test]
 fn custom_handler_has_no_sudo() {
     // prepare needed tools
-    let app = App::default();
+    let app = default_app();
     let mut storage = MockStorage::default();
 
     // create custom handler

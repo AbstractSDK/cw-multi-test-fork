@@ -2,6 +2,8 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Coin, CustomMsg, CustomQuery, Uint128};
 use cw_multi_test::{custom_app, App, AppBuilder, BasicApp};
 
+use crate::{default_app, remote_channel};
+
 const USER: &str = "user";
 const DENOM: &str = "denom";
 const AMOUNT: u128 = 100;
@@ -36,7 +38,7 @@ fn initializing_balance_should_work() {
 
 #[test]
 fn initializing_balance_without_builder_should_work() {
-    let app = App::new(|router, api, storage| {
+    let app = App::new(remote_channel(), |router, api, storage| {
         router
             .bank
             .init_balance(storage, &api.addr_make(USER), coins())
@@ -63,12 +65,13 @@ fn initializing_balance_custom_app_should_work() {
     }
     impl CustomQuery for CustomHelperQuery {}
 
-    let app: BasicApp<CustomHelperMsg, CustomHelperQuery> = custom_app(|router, api, storage| {
-        router
-            .bank
-            .init_balance(storage, &api.addr_make(USER), coins())
-            .unwrap();
-    });
+    let app: BasicApp<CustomHelperMsg, CustomHelperQuery> =
+        custom_app(remote_channel(), |router, api, storage| {
+            router
+                .bank
+                .init_balance(storage, &api.addr_make(USER), coins())
+                .unwrap();
+        });
     assert_balance(
         app.wrap()
             .query_all_balances(app.api().addr_make(USER))
@@ -78,7 +81,7 @@ fn initializing_balance_custom_app_should_work() {
 
 #[test]
 fn initializing_balance_later_should_work() {
-    let mut app = App::default();
+    let mut app = default_app();
     app.init_modules(|router, api, storage| {
         router
             .bank

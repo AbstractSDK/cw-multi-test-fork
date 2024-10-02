@@ -5,7 +5,14 @@ use crate::contracts::Contract;
 use crate::error::{bail, AnyContext, AnyError, AnyResult, Error};
 use crate::executor::AppResponse;
 use crate::prefixed_storage::{prefixed, prefixed_read, PrefixedStorage, ReadonlyPrefixedStorage};
+use crate::queries::wasm::WasmRemoteQuerier;
 use crate::transactions::transactional;
+use crate::wasm_emulation::channel::RemoteChannel;
+use crate::wasm_emulation::contract::{LocalWasmContract, WasmContract};
+use crate::wasm_emulation::input::QuerierStorage;
+use crate::wasm_emulation::instance::create_module;
+use crate::wasm_emulation::query::mock_querier::{ForkState, LocalForkedState};
+use crate::wasm_emulation::query::{AllWasmQuerier, ContainsRemote};
 use cosmwasm_std::testing::mock_wasmd_attr;
 use cosmwasm_std::{
     to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Checksum, Coin, ContractInfo,
@@ -18,20 +25,23 @@ use prost::Message;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 /// Contract state kept in storage, separate from the contracts themselves (contract code).
-const CONTRACTS: Map<&Addr, ContractData> = Map::new("contracts");
+pub const CONTRACTS: Map<&Addr, ContractData> = Map::new("contracts");
 
 /// Wasm module namespace.
-const NAMESPACE_WASM: &[u8] = b"wasm";
+pub const NAMESPACE_WASM: &[u8] = b"wasm";
 
 /// Contract [address namespace].
 ///
 /// [address namespace]: https://github.com/CosmWasm/wasmd/blob/96e2b91144c9a371683555f3c696f882583cc6a2/x/wasm/types/events.go#L59
 const CONTRACT_ATTR: &str = "_contract_address";
+pub const LOCAL_WASM_CODE_OFFSET: usize = 5_000_000;
+pub const LOCAL_RUST_CODE_OFFSET: usize = 10_000_000;
 
 /// A structure representing a privileged message.
 #[derive(Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -68,18 +78,18 @@ pub struct ContractData {
     pub created: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Contract code base data.
-struct CodeData {
+pub struct CodeData {
     /// Address of an account that initially stored the contract code.
-    creator: Addr,
+    pub creator: Addr,
     /// Checksum of the contract's code base.
-    checksum: Checksum,
-    /// Identifier of the _source_ code of the contract stored in wasm keeper.
-    source_id: usize,
+    pub checksum: Checksum,
+    /// Identifier of the code base where the contract code is stored in memory.
+    pub source_id: usize,
 }
-
 /// This trait implements the interface of the Wasm module.
-pub trait Wasm<ExecC, QueryC> {
+pub trait Wasm<ExecC, QueryC>: AllWasmQuerier + ContainsRemote {
     /// Handles all `WasmMsg` messages.
     fn execute(
         &self,
@@ -96,6 +106,7 @@ pub trait Wasm<ExecC, QueryC> {
         &self,
         api: &dyn Api,
         storage: &dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         querier: &dyn Querier,
         block: &BlockInfo,
         request: WasmQuery,
@@ -114,6 +125,8 @@ pub trait Wasm<ExecC, QueryC> {
     /// Stores the contract's code and returns an identifier of the stored contract's code.
     fn store_code(&mut self, creator: Addr, code: Box<dyn Contract<ExecC, QueryC>>) -> u64;
 
+    /// Stores the contract's code and returns an identifier of the stored contract's code.
+    fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64;
     /// Stores the contract's code under specified identifier,
     /// returns the same code identifier when successful.
     fn store_code_with_id(
@@ -167,29 +180,35 @@ pub trait Wasm<ExecC, QueryC> {
     }
 }
 
-/// A structure representing a default wasm keeper.
-pub struct WasmKeeper<ExecC, QueryC> {
+pub type LocalRustContract<ExecC, QueryC> = *mut dyn Contract<ExecC, QueryC>;
+pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
     /// Contract codes that stand for wasm code in real-life blockchain.
-    code_base: Vec<Box<dyn Contract<ExecC, QueryC>>>,
-    /// Code data with code base identifier and additional attributes.
-    code_data: BTreeMap<u64, CodeData>,
+    pub code_base: RefCell<BTreeMap<u64, WasmContract>>,
+    /// Code data with code base identifier and additional attributes.  
+    pub code_data: BTreeMap<u64, CodeData>,
+    /// Contract codes that stand for rust code living in the current instance
+    /// We also associate the queries to them to make sure we are able to use them with the vm instance
+    pub rust_codes: HashMap<u64, LocalRustContract<ExecC, QueryC>>,
     /// Contract's address generator.
     address_generator: Box<dyn AddressGenerator>,
     /// Contract's code checksum generator.
     checksum_generator: Box<dyn ChecksumGenerator>,
+    // chain on which the contract should be queried/tested against
+    remote: Option<RemoteChannel>,
     /// Just markers to make type elision fork when using it as `Wasm` trait
     _p: std::marker::PhantomData<QueryC>,
 }
 
-impl<ExecC, QueryC> Default for WasmKeeper<ExecC, QueryC> {
-    /// Returns the default value for [WasmKeeper].
-    fn default() -> Self {
+impl<ExecC, QueryC: CustomQuery> Default for WasmKeeper<ExecC, QueryC> {
+    fn default() -> WasmKeeper<ExecC, QueryC> {
         Self {
-            code_base: Vec::default(),
+            code_base: BTreeMap::default().into(),
             code_data: BTreeMap::default(),
             address_generator: Box::new(SimpleAddressGenerator),
             checksum_generator: Box::new(SimpleChecksumGenerator),
             _p: std::marker::PhantomData,
+            remote: None,
+            rust_codes: HashMap::new(),
         }
     }
 }
@@ -219,6 +238,7 @@ where
         &self,
         api: &dyn Api,
         storage: &dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         querier: &dyn Querier,
         block: &BlockInfo,
         request: WasmQuery,
@@ -226,7 +246,15 @@ where
         match request {
             WasmQuery::Smart { contract_addr, msg } => {
                 let addr = api.addr_validate(&contract_addr)?;
-                self.query_smart(addr, api, storage, querier, block, msg.into())
+                self.query_smart(
+                    addr,
+                    api,
+                    storage,
+                    querier,
+                    block,
+                    msg.into(),
+                    router.get_querier_storage(storage)?,
+                )
             }
             WasmQuery::Raw { contract_addr, key } => {
                 let addr = api.addr_validate(&contract_addr)?;
@@ -267,6 +295,9 @@ where
         msg: WasmSudo,
     ) -> AnyResult<AppResponse> {
         let custom_event = Event::new("sudo").add_attribute(CONTRACT_ATTR, &msg.contract_addr);
+
+        let querier_storage = router.get_querier_storage(storage)?;
+
         let res = self.call_sudo(
             msg.contract_addr.clone(),
             api,
@@ -274,9 +305,35 @@ where
             router,
             block,
             msg.message.to_vec(),
+            querier_storage,
         )?;
         let (res, msgs) = self.build_app_response(&msg.contract_addr, custom_event, res);
         self.process_response(api, router, storage, block, msg.contract_addr, res, msgs)
+    }
+
+    /// Stores the contract's code in the in-memory lookup table.
+    /// Returns an identifier of the stored contract code.
+    fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
+        let code_id = self
+            .next_code_id()
+            .unwrap_or_else(|| panic!("{}", Error::NoMoreCodeIdAvailable));
+        let code = WasmContract::Local(LocalWasmContract {
+            module: create_module(&code).unwrap(),
+            code,
+        });
+        let checksum = <WasmContract as Contract<ExecC, QueryC>>::checksum(&code)
+            .unwrap_or(self.checksum_generator.checksum(&creator, code_id));
+
+        self.code_base.borrow_mut().insert(code_id, code);
+        self.code_data.insert(
+            code_id,
+            CodeData {
+                creator,
+                checksum,
+                source_id: code_id as usize,
+            },
+        );
+        code_id
     }
 
     /// Stores the contract's code in the in-memory lookup table.
@@ -327,6 +384,9 @@ where
     fn contract_data(&self, storage: &dyn Storage, address: &Addr) -> AnyResult<ContractData> {
         CONTRACTS
             .load(&prefixed_read(storage, NAMESPACE_WASM), address)
+            .or_else(|_| {
+                WasmRemoteQuerier::load_distant_contract(self.remote.clone().unwrap(), address)
+            })
             .map_err(Into::into)
     }
 
@@ -337,11 +397,35 @@ where
     }
 }
 
+pub enum ContractBox<'a, ExecC, QueryC> {
+    Borrowed(&'a dyn Contract<ExecC, QueryC>),
+    Owned(Box<dyn Contract<ExecC, QueryC>>),
+}
+
 impl<ExecC, QueryC> WasmKeeper<ExecC, QueryC>
 where
     ExecC: CustomMsg + DeserializeOwned + 'static,
     QueryC: CustomQuery + DeserializeOwned + 'static,
 {
+    /// Only for Clone-testing
+    fn fork_state(
+        &self,
+        querier_storage: QuerierStorage,
+        env: &Env,
+    ) -> AnyResult<ForkState<ExecC, QueryC>> {
+        Ok(ForkState {
+            remote: self.remote.clone().unwrap(),
+            querier_storage,
+            local_state: LocalForkedState {
+                contracts: self
+                    .rust_codes
+                    .iter()
+                    .map(|(id, &code)| (*id, code))
+                    .collect(),
+                env: env.clone(),
+            },
+        })
+    }
     /// Creates a wasm keeper with default settings.
     ///
     /// # Example
@@ -430,20 +514,56 @@ where
     }
 
     /// Returns a handler to code of the contract with specified code id.
-    pub fn contract_code(&self, code_id: u64) -> AnyResult<&dyn Contract<ExecC, QueryC>> {
-        let code_data = self.code_data(code_id)?;
-        Ok(self.code_base[code_data.source_id].borrow())
+    pub fn contract_code<'a, 'b>(
+        &'a self,
+        code_id: u64,
+    ) -> AnyResult<ContractBox<'a, ExecC, QueryC>>
+    where
+        'a: 'b,
+    {
+        let code = self.code_base.borrow().get(&code_id).cloned();
+        if let Some(code) = code {
+            Ok(ContractBox::Owned(Box::new(code)))
+        } else if let Some(&rust_code) = self.rust_codes.get(&code_id) {
+            Ok(ContractBox::Borrowed(unsafe {
+                rust_code.as_ref().unwrap()
+            }))
+        } else {
+            // We fetch the code and save the corresponding module in memory
+            let wasm_contract =
+                WasmContract::new_distant_code_id(code_id, self.remote.clone().unwrap());
+
+            // We save it in memory
+            self.code_base
+                .borrow_mut()
+                .insert(code_id, wasm_contract.clone());
+
+            // And return a Owned reference
+            Ok(ContractBox::Owned(Box::new(wasm_contract)))
+        }
     }
 
     /// Returns code data of the contract with specified code id.
-    fn code_data(&self, code_id: u64) -> AnyResult<&CodeData> {
+    fn code_data(&self, code_id: u64) -> AnyResult<CodeData> {
         if code_id < 1 {
             bail!(Error::invalid_code_id());
         }
-        Ok(self
-            .code_data
-            .get(&code_id)
-            .ok_or_else(|| Error::unregistered_code_id(code_id))?)
+        if let Some(code_data) = self.code_data.get(&code_id) {
+            Ok(code_data.clone())
+        } else {
+            let code_info_response =
+                WasmRemoteQuerier::code_info(self.remote.clone().unwrap(), code_id)?;
+            Ok(CodeData {
+                creator: Addr::unchecked(code_info_response.creator),
+                checksum: code_info_response.checksum,
+                source_id: code_id as usize,
+            })
+        }
+    }
+
+    pub fn dump_wasm_raw(&self, storage: &dyn Storage, address: &Addr) -> Vec<Record> {
+        let storage = self.contract_storage(storage, address);
+        storage.range(None, None, Order::Ascending).collect()
     }
 
     /// Validates all attributes.
@@ -489,13 +609,15 @@ where
         code: Box<dyn Contract<ExecC, QueryC>>,
     ) -> u64 {
         // prepare the next identifier for the contract's code
-        let source_id = self.code_base.len();
+        let source_id = code_id as usize;
         // prepare the contract's Wasm blob checksum
         let checksum = code
             .checksum()
             .unwrap_or(self.checksum_generator.checksum(&creator, code_id));
         // store the 'source' code of the contract
-        self.code_base.push(code);
+        let static_ref = Box::leak(code);
+        let raw_pointer = static_ref as *mut dyn Contract<ExecC, QueryC>;
+        self.rust_codes.insert(code_id, raw_pointer);
         // store the additional code attributes like creator address and checksum
         self.code_data.insert(
             code_id,
@@ -510,7 +632,7 @@ where
 
     /// Returns the next contract's code identifier.
     fn next_code_id(&self) -> Option<u64> {
-        self.code_data.keys().last().unwrap_or(&0u64).checked_add(1)
+        Some((self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET) as u64)
     }
 
     /// Executes the contract's `query` entry-point.
@@ -522,6 +644,7 @@ where
         querier: &dyn Querier,
         block: &BlockInfo,
         msg: Vec<u8>,
+        querier_storage: QuerierStorage,
     ) -> AnyResult<Binary> {
         self.with_storage_readonly(
             api,
@@ -529,14 +652,33 @@ where
             querier,
             block,
             address,
-            |handler, deps, env| handler.query(deps, env, msg),
+            |handler, deps, env| match handler {
+                ContractBox::Borrowed(contract) => contract.query(
+                    deps,
+                    env.clone(),
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+                ContractBox::Owned(contract) => contract.query(
+                    deps,
+                    env.clone(),
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+            },
         )
     }
 
     /// Returns the value stored under specified key in contracts storage.
     pub fn query_raw(&self, address: Addr, storage: &dyn Storage, key: &[u8]) -> Binary {
         let storage = self.contract_storage(storage, &address);
-        let data = storage.get(key).unwrap_or_default();
+        let data = storage
+            .get(key)
+            .or_else(|| {
+                WasmRemoteQuerier::raw_query(self.remote.clone().unwrap(), &address, key.into())
+                    .ok()
+            })
+            .unwrap_or_default();
         data.into()
     }
 
@@ -624,6 +766,8 @@ where
 
                 // then call the contract
                 let info = MessageInfo { sender, funds };
+                let querier_storage = router.get_querier_storage(storage)?;
+
                 let res = self.call_execute(
                     api,
                     storage,
@@ -632,6 +776,7 @@ where
                     block,
                     info,
                     msg.to_vec(),
+                    querier_storage,
                 )?;
 
                 let custom_event =
@@ -652,7 +797,6 @@ where
             } => self.process_wasm_msg_instantiate(
                 api, storage, router, block, sender, admin, code_id, msg, funds, label, None,
             ),
-            #[cfg(feature = "cosmwasm_1_2")]
             WasmMsg::Instantiate2 {
                 admin,
                 code_id,
@@ -680,10 +824,8 @@ where
             } => {
                 let contract_addr = api.addr_validate(&contract_addr)?;
 
-                // check admin status and update the stored code_id
-                if new_code_id as usize > self.code_data.len() {
-                    bail!("Cannot migrate contract to unregistered code id");
-                }
+                // We don't check if the code exists here, the call_migrate hook, will take care of that
+                // This allows migrating to an on-chain code_id
                 let mut data = self.contract_data(storage, &contract_addr)?;
                 if data.admin != Some(sender) {
                     bail!("Only admin can migrate contract: {:?}", data.admin);
@@ -692,6 +834,7 @@ where
                 self.save_contract(storage, &contract_addr, &data)?;
 
                 // then call migrate
+                let querier_storage = router.get_querier_storage(storage)?;
                 let res = self.call_migrate(
                     contract_addr.clone(),
                     api,
@@ -699,6 +842,7 @@ where
                     router,
                     block,
                     msg.to_vec(),
+                    querier_storage,
                 )?;
 
                 let custom_event = Event::new("migrate")
@@ -764,6 +908,7 @@ where
 
         // then call the contract
         let info = MessageInfo { sender, funds };
+        let querier_storage = router.get_querier_storage(storage)?;
         let res = self.call_instantiate(
             contract_addr.clone(),
             api,
@@ -772,6 +917,7 @@ where
             block,
             info,
             msg.to_vec(),
+            querier_storage,
         )?;
 
         let custom_event = Event::new("instantiate")
@@ -883,6 +1029,7 @@ where
 
         let res = self.call_reply(contract.clone(), api, storage, router, block, reply)?;
         let (res, msgs) = self.build_app_response(&contract, custom_event, res);
+
         self.process_response(api, router, storage, block, contract, res, msgs)
     }
 
@@ -971,11 +1118,7 @@ where
         created: u64,
         salt: impl Into<Option<Binary>>,
     ) -> AnyResult<Addr> {
-        // check if the contract's code with specified code_id exists
-        if code_id as usize > self.code_data.len() {
-            bail!("Cannot init contract with unregistered code id");
-        }
-
+        // We don't error if the code id doesn't exist, it allows us to instantiate remote contracts
         // generate a new contract address
         let instance_id = self.instance_count(storage) as u64;
         let addr = if let Some(salt_binary) = salt.into() {
@@ -1024,6 +1167,7 @@ where
         block: &BlockInfo,
         info: MessageInfo,
         msg: Vec<u8>,
+        querier_storage: QuerierStorage,
     ) -> AnyResult<Response<ExecC>> {
         Self::verify_response(self.with_storage(
             api,
@@ -1031,7 +1175,22 @@ where
             router,
             block,
             address,
-            |contract, deps, env| contract.execute(deps, env, info, msg),
+            |contract, deps, env| match contract {
+                ContractBox::Borrowed(contract) => contract.execute(
+                    deps,
+                    env.clone(),
+                    info,
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+                ContractBox::Owned(contract) => contract.execute(
+                    deps,
+                    env.clone(),
+                    info,
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+            },
         )?)
     }
 
@@ -1045,6 +1204,7 @@ where
         block: &BlockInfo,
         info: MessageInfo,
         msg: Vec<u8>,
+        querier_storage: QuerierStorage,
     ) -> AnyResult<Response<ExecC>> {
         Self::verify_response(self.with_storage(
             api,
@@ -1052,7 +1212,22 @@ where
             router,
             block,
             address,
-            |contract, deps, env| contract.instantiate(deps, env, info, msg),
+            |contract, deps, env| match contract {
+                ContractBox::Borrowed(contract) => contract.instantiate(
+                    deps,
+                    env.clone(),
+                    info,
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+                ContractBox::Owned(contract) => contract.instantiate(
+                    deps,
+                    env.clone(),
+                    info,
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+            },
         )?)
     }
 
@@ -1066,13 +1241,27 @@ where
         block: &BlockInfo,
         reply: Reply,
     ) -> AnyResult<Response<ExecC>> {
+        let querier_storage = router.get_querier_storage(storage)?;
         Self::verify_response(self.with_storage(
             api,
             storage,
             router,
             block,
             address,
-            |contract, deps, env| contract.reply(deps, env, reply),
+            |contract, deps, env| match contract {
+                ContractBox::Borrowed(contract) => contract.reply(
+                    deps,
+                    env.clone(),
+                    reply,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+                ContractBox::Owned(contract) => contract.reply(
+                    deps,
+                    env.clone(),
+                    reply,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+            },
         )?)
     }
 
@@ -1085,6 +1274,7 @@ where
         router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         block: &BlockInfo,
         msg: Vec<u8>,
+        querier_storage: QuerierStorage,
     ) -> AnyResult<Response<ExecC>> {
         Self::verify_response(self.with_storage(
             api,
@@ -1092,7 +1282,20 @@ where
             router,
             block,
             address,
-            |contract, deps, env| contract.sudo(deps, env, msg),
+            |contract, deps, env| match contract {
+                ContractBox::Borrowed(contract) => contract.sudo(
+                    deps,
+                    env.clone(),
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+                ContractBox::Owned(contract) => contract.sudo(
+                    deps,
+                    env.clone(),
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+            },
         )?)
     }
 
@@ -1105,6 +1308,7 @@ where
         router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         block: &BlockInfo,
         msg: Vec<u8>,
+        querier_storage: QuerierStorage,
     ) -> AnyResult<Response<ExecC>> {
         Self::verify_response(self.with_storage(
             api,
@@ -1112,7 +1316,20 @@ where
             router,
             block,
             address,
-            |contract, deps, env| contract.migrate(deps, env, msg),
+            |contract, deps, env| match contract {
+                ContractBox::Borrowed(contract) => contract.migrate(
+                    deps,
+                    env.clone(),
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+                ContractBox::Owned(contract) => contract.migrate(
+                    deps,
+                    env.clone(),
+                    msg,
+                    self.fork_state(querier_storage, &env)?,
+                ),
+            },
         )?)
     }
 
@@ -1126,8 +1343,8 @@ where
         }
     }
 
-    fn with_storage_readonly<F, T>(
-        &self,
+    fn with_storage_readonly<'a, 'b, F, T>(
+        &'a self,
         api: &dyn Api,
         storage: &dyn Storage,
         querier: &dyn Querier,
@@ -1136,10 +1353,11 @@ where
         action: F,
     ) -> AnyResult<T>
     where
-        F: FnOnce(&dyn Contract<ExecC, QueryC>, Deps<QueryC>, Env) -> AnyResult<T>,
+        F: FnOnce(ContractBox<'b, ExecC, QueryC>, Deps<QueryC>, Env) -> AnyResult<T>,
+        'a: 'b,
     {
         let contract = self.contract_data(storage, &address)?;
-        let handler = self.contract_code(contract.code_id)?;
+        let handler = self.contract_code::<'a, 'b>(contract.code_id)?;
         let storage = self.contract_storage(storage, &address);
         let env = self.get_env(address, block);
 
@@ -1161,7 +1379,7 @@ where
         action: F,
     ) -> AnyResult<T>
     where
-        F: FnOnce(&dyn Contract<ExecC, QueryC>, DepsMut<QueryC>, Env) -> AnyResult<T>,
+        F: FnOnce(ContractBox<ExecC, QueryC>, DepsMut<QueryC>, Env) -> AnyResult<T>,
         ExecC: DeserializeOwned,
     {
         let contract = self.contract_data(storage, &address)?;
@@ -1210,6 +1428,21 @@ where
     }
 }
 
+impl<ExecC, QueryC> ContainsRemote for WasmKeeper<ExecC, QueryC>
+where
+    ExecC: CustomMsg + DeserializeOwned + 'static,
+    QueryC: CustomQuery + DeserializeOwned + 'static,
+{
+    fn with_remote(mut self, remote: RemoteChannel) -> Self {
+        self.set_remote(remote);
+        self
+    }
+
+    fn set_remote(&mut self, remote: RemoteChannel) {
+        self.remote = Some(remote)
+    }
+}
+
 #[derive(Clone, PartialEq, Message)]
 struct InstantiateResponse {
     #[prost(string, tag = "1")]
@@ -1255,6 +1488,7 @@ mod test {
     use crate::featured::staking::{DistributionKeeper, StakeKeeper};
     use crate::module::FailingModule;
     use crate::test_helpers::{caller, error, payout};
+    use crate::tests::remote_channel;
     use crate::transactions::StorageTransaction;
     use crate::{GovFailingModule, IbcFailingModule, StargateFailing};
     use cosmwasm_std::testing::{message_info, mock_env, MockApi, MockQuerier, MockStorage};
@@ -1277,7 +1511,7 @@ mod test {
     >;
 
     fn wasm_keeper() -> WasmKeeper<Empty, Empty> {
-        WasmKeeper::new()
+        WasmKeeper::new().with_remote(remote_channel())
     }
 
     fn mock_router() -> BasicRouter {
@@ -1365,6 +1599,7 @@ mod test {
                 &block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
         })
         .unwrap_err();
@@ -1386,6 +1621,7 @@ mod test {
                 &block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
         })
         .unwrap_err();
@@ -1427,7 +1663,7 @@ mod test {
         };
 
         let contract_info = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query)
+            .query(&api, &wasm_storage, &mock_router(), &querier, &block, query)
             .unwrap();
 
         let actual: ContractInfoResponse = from_json(contract_info).unwrap();
@@ -1448,7 +1684,7 @@ mod test {
         let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
         let query = WasmQuery::CodeInfo { code_id };
         let code_info = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query)
+            .query(&api, &wasm_storage, &mock_router(), &querier, &block, query)
             .unwrap();
         let actual: CodeInfoResponse = from_json(code_info).unwrap();
         assert_eq!(code_id, actual.code_id);
@@ -1474,10 +1710,24 @@ mod test {
             code_id: code_id_caller,
         };
         let code_info_payout = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query_payout)
+            .query(
+                &api,
+                &wasm_storage,
+                &mock_router(),
+                &querier,
+                &block,
+                query_payout,
+            )
             .unwrap();
         let code_info_caller = wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query_caller)
+            .query(
+                &api,
+                &wasm_storage,
+                &mock_router(),
+                &querier,
+                &block,
+                query_caller,
+            )
             .unwrap();
         let info_payout: CodeInfoResponse = from_json(code_info_payout).unwrap();
         let info_caller: CodeInfoResponse = from_json(code_info_caller).unwrap();
@@ -1500,7 +1750,7 @@ mod test {
         let query = WasmQuery::CodeInfo { code_id: 100 };
 
         wasm_keeper
-            .query(&api, &wasm_storage, &querier, &block, query)
+            .query(&api, &wasm_storage, &mock_router(), &querier, &block, query)
             .unwrap_err();
     }
 
@@ -1546,6 +1796,7 @@ mod test {
                 &block,
                 message_info(&user_addr, &[]),
                 to_json_vec(&msg).unwrap(),
+                QuerierStorage::default(),
             )
             .unwrap();
 
@@ -1608,6 +1859,7 @@ mod test {
                 &block,
                 info,
                 init_msg,
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(0, res.messages.len());
@@ -1623,6 +1875,7 @@ mod test {
                 &block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(1, res.messages.len());
@@ -1641,7 +1894,15 @@ mod test {
         let query = to_json_vec(&payout::QueryMsg::Payout {}).unwrap();
         let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
         let data = wasm_keeper
-            .query_smart(contract_addr, &api, &wasm_storage, &querier, &block, query)
+            .query_smart(
+                contract_addr,
+                &api,
+                &wasm_storage,
+                &querier,
+                &block,
+                query,
+                QuerierStorage::default(),
+            )
             .unwrap();
         let res: payout::InstantiateMessage = from_json(data).unwrap();
         assert_eq!(res.payout, payout);
@@ -1665,6 +1926,7 @@ mod test {
                 &mock_env().block,
                 info,
                 b"{}".to_vec(),
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(1, res.messages.len());
@@ -1727,6 +1989,7 @@ mod test {
                     &block,
                     info,
                     init_msg,
+                    QuerierStorage::default(),
                 )
                 .unwrap();
 
@@ -1768,6 +2031,7 @@ mod test {
                     &block,
                     info,
                     init_msg,
+                    QuerierStorage::default(),
                 )
                 .unwrap();
             assert_payout(&wasm_keeper, cache, &contract2, &payout2);
@@ -1804,6 +2068,7 @@ mod test {
                         &block,
                         info,
                         init_msg,
+                        QuerierStorage::default(),
                     )
                     .unwrap();
                 assert_payout(&wasm_keeper, cache2, &contract3, &payout3);
@@ -1847,6 +2112,7 @@ mod test {
             .query(
                 &api,
                 storage,
+                &mock_router(),
                 &querier,
                 &mock_env().block,
                 WasmQuery::ContractInfo {
@@ -1897,6 +2163,7 @@ mod test {
                 &block,
                 info,
                 init_msg,
+                QuerierStorage::default(),
             )
             .unwrap();
         assert_eq!(0, res.messages.len());

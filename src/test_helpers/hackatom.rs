@@ -7,6 +7,7 @@ use cosmwasm_std::{
     StdError,
 };
 use cw_storage_plus::Item;
+use serde::de::DeserializeOwned;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -75,7 +76,7 @@ pub fn contract() -> Box<dyn Contract<Empty>> {
 #[allow(dead_code)]
 pub fn custom_contract<C>() -> Box<dyn Contract<C>>
 where
-    C: CustomMsg + 'static,
+    C: CustomMsg + DeserializeOwned + 'static,
 {
     let contract =
         ContractWrapper::new_with_empty(execute, instantiate, query).with_migrate_empty(migrate);

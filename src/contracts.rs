@@ -1,6 +1,11 @@
 //! # Implementation of the contract trait and contract wrapper
 
-use crate::error::{anyhow, bail, AnyError, AnyResult};
+use crate::error::{anyhow, bail, AnyResult};
+use crate::wasm_emulation::query::mock_querier::ForkState;
+use crate::wasm_emulation::query::MockQuerier;
+use crate::wasm_emulation::storage::dual_std_storage::DualStorage;
+use crate::wasm_emulation::storage::storage_wrappers::{ReadonlyStorageWrapper, StorageWrapper};
+use anyhow::Error as AnyError;
 use cosmwasm_std::{
     from_json, Binary, Checksum, CosmosMsg, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env,
     MessageInfo, QuerierWrapper, Reply, Response, SubMsg,
@@ -10,29 +15,66 @@ use std::fmt::{Debug, Display};
 use std::ops::Deref;
 
 /// This trait serves as a primary interface for interacting with contracts.
-#[rustfmt::skip]
 pub trait Contract<C, Q = Empty>
 where
     C: CustomMsg,
-    Q: CustomQuery,
+    Q: CustomQuery + DeserializeOwned,
 {
     /// Evaluates contract's `execute` entry-point.
-    fn execute(&self, deps: DepsMut<Q>, env: Env, info: MessageInfo, msg: Vec<u8>) -> AnyResult<Response<C>>;
+    fn execute(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        info: MessageInfo,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `instantiate` entry-point.
-    fn instantiate(&self, deps: DepsMut<Q>, env: Env, info: MessageInfo, msg: Vec<u8>) -> AnyResult<Response<C>>;
+    fn instantiate(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        info: MessageInfo,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `query` entry-point.
-    fn query(&self, deps: Deps<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Binary>;
+    fn query(
+        &self,
+        deps: Deps<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Binary>;
 
     /// Evaluates contract's `sudo` entry-point.
-    fn sudo(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Response<C>>;
+    fn sudo(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `reply` entry-point.
-    fn reply(&self, deps: DepsMut<Q>, env: Env, msg: Reply) -> AnyResult<Response<C>>;
+    fn reply(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Reply,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Evaluates contract's `migrate` entry-point.
-    fn migrate(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Response<C>>;
+    fn migrate(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>>;
 
     /// Returns the provided checksum of the contract's Wasm blob.
     fn checksum(&self) -> Option<Checksum> {
@@ -480,7 +522,7 @@ where
     E4: Display + Debug + Send + Sync + 'static, // Type of error returned from `sudo` entry-point.
     E5: Display + Debug + Send + Sync + 'static, // Type of error returned from `reply` entry-point.
     E6: Display + Debug + Send + Sync + 'static, // Type of error returned from `migrate` entry-point.
-    C: CustomMsg, // Type of custom message returned from all entry-points except `query`.
+    C: CustomMsg + DeserializeOwned, // Type of custom message returned from all entry-points except `query`.
     Q: CustomQuery + DeserializeOwned, // Type of custom query in querier passed as deps/deps_mut to all entry-points.
 {
     /// Calls [execute] on wrapped [Contract] trait implementor.
@@ -492,7 +534,20 @@ where
         env: Env,
         info: MessageInfo,
         msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
     ) -> AnyResult<Response<C>> {
+        let querier = MockQuerier::new(fork_state.clone());
+        let mut storage = DualStorage::new(
+            fork_state.remote,
+            env.contract.address.to_string(),
+            Box::new(StorageWrapper::new(deps.storage)),
+        )?;
+        let deps = DepsMut {
+            storage: &mut storage,
+            api: deps.api,
+            querier: QuerierWrapper::new(&querier),
+        };
+
         let msg: T1 = from_json(msg)?;
         (self.execute_fn)(deps, env, info, msg).map_err(|err: E1| anyhow!(err))
     }
@@ -506,7 +561,19 @@ where
         env: Env,
         info: MessageInfo,
         msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
     ) -> AnyResult<Response<C>> {
+        let querier = MockQuerier::new(fork_state.clone());
+        let mut storage = DualStorage::new(
+            fork_state.remote,
+            env.contract.address.to_string(),
+            Box::new(StorageWrapper::new(deps.storage)),
+        )?;
+        let deps = DepsMut {
+            storage: &mut storage,
+            api: deps.api,
+            querier: QuerierWrapper::new(&querier),
+        };
         let msg: T2 = from_json(msg)?;
         (self.instantiate_fn)(deps, env, info, msg).map_err(|err: E2| anyhow!(err))
     }
@@ -514,7 +581,24 @@ where
     /// Calls [query] on wrapped [Contract] trait implementor.
     ///
     /// [query]: Contract::query
-    fn query(&self, deps: Deps<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Binary> {
+    fn query(
+        &self,
+        deps: Deps<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Binary> {
+        let querier = MockQuerier::new(fork_state.clone());
+        let mut storage = DualStorage::new(
+            fork_state.remote,
+            env.contract.address.to_string(),
+            Box::new(ReadonlyStorageWrapper::new(deps.storage)),
+        )?;
+        let deps = Deps {
+            storage: &mut storage,
+            api: deps.api,
+            querier: QuerierWrapper::new(&querier),
+        };
         let msg: T3 = from_json(msg)?;
         (self.query_fn)(deps, env, msg).map_err(|err: E3| anyhow!(err))
     }
@@ -523,8 +607,25 @@ where
     /// Returns an error when the contract does not implement [sudo].
     ///
     /// [sudo]: Contract::sudo
-    fn sudo(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Response<C>> {
-        let msg: T4 = from_json(msg)?;
+    fn sudo(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>> {
+        let querier = MockQuerier::new(fork_state.clone());
+        let mut storage = DualStorage::new(
+            fork_state.remote,
+            env.contract.address.to_string(),
+            Box::new(StorageWrapper::new(deps.storage)),
+        )?;
+        let deps = DepsMut {
+            storage: &mut storage,
+            api: deps.api,
+            querier: QuerierWrapper::new(&querier),
+        };
+        let msg = from_json(msg)?;
         match &self.sudo_fn {
             Some(sudo) => sudo(deps, env, msg).map_err(|err: E4| anyhow!(err)),
             None => bail!("sudo is not implemented for contract"),
@@ -535,8 +636,25 @@ where
     /// Returns an error when the contract does not implement [reply].
     ///
     /// [reply]: Contract::reply
-    fn reply(&self, deps: DepsMut<Q>, env: Env, reply_data: Reply) -> AnyResult<Response<C>> {
+    fn reply(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        reply_data: Reply,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>> {
         let msg: Reply = reply_data;
+        let querier = MockQuerier::new(fork_state.clone());
+        let mut storage = DualStorage::new(
+            fork_state.remote,
+            env.contract.address.to_string(),
+            Box::new(StorageWrapper::new(deps.storage)),
+        )?;
+        let deps = DepsMut {
+            storage: &mut storage,
+            api: deps.api,
+            querier: QuerierWrapper::new(&querier),
+        };
         match &self.reply_fn {
             Some(reply) => reply(deps, env, msg).map_err(|err: E5| anyhow!(err)),
             None => bail!("reply is not implemented for contract"),
@@ -547,8 +665,25 @@ where
     /// Returns an error when the contract does not implement [migrate].
     ///
     /// [migrate]: Contract::migrate
-    fn migrate(&self, deps: DepsMut<Q>, env: Env, msg: Vec<u8>) -> AnyResult<Response<C>> {
-        let msg: T6 = from_json(msg)?;
+    fn migrate(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: Vec<u8>,
+        fork_state: ForkState<C, Q>,
+    ) -> AnyResult<Response<C>> {
+        let querier = MockQuerier::new(fork_state.clone());
+        let mut storage = DualStorage::new(
+            fork_state.remote,
+            env.contract.address.to_string(),
+            Box::new(StorageWrapper::new(deps.storage)),
+        )?;
+        let deps = DepsMut {
+            storage: &mut storage,
+            api: deps.api,
+            querier: QuerierWrapper::new(&querier),
+        };
+        let msg = from_json(msg)?;
         match &self.migrate_fn {
             Some(migrate) => migrate(deps, env, msg).map_err(|err: E6| anyhow!(err)),
             None => bail!("migrate is not implemented for contract"),
