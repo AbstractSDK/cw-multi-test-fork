@@ -1,7 +1,7 @@
 #![cfg(feature = "stargate")]
 
 use crate::test_helpers::gov;
-use crate::tests::test_app::default_app;
+use crate::tests::default_app;
 use crate::{no_init, App, AppBuilder, Executor, GovAcceptingModule};
 use cosmwasm_std::Empty;
 #[test]

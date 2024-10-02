@@ -548,17 +548,20 @@ where
         if code_id < 1 {
             bail!(Error::invalid_code_id());
         }
-        if let Some(code_data) = self.code_data.get(&code_id) {
-            Ok(code_data.clone())
-        } else {
-            let code_info_response =
-                WasmRemoteQuerier::code_info(self.remote.clone().unwrap(), code_id)?;
-            Ok(CodeData {
-                creator: Addr::unchecked(code_info_response.creator),
-                checksum: code_info_response.checksum,
-                source_id: code_id as usize,
+        Ok(self
+            .code_data
+            .get(&code_id)
+            .cloned()
+            .ok_or_else(|| {
+                let code_info_response =
+                    WasmRemoteQuerier::code_info(self.remote.clone().unwrap(), code_id)?;
+                Ok::<_, anyhow::Error>(CodeData {
+                    creator: Addr::unchecked(code_info_response.creator),
+                    checksum: code_info_response.checksum,
+                    source_id: code_id as usize,
+                })
             })
-        }
+            .map_err(|_| Error::unregistered_code_id(code_id))?)
     }
 
     pub fn dump_wasm_raw(&self, storage: &dyn Storage, address: &Addr) -> Vec<Record> {
