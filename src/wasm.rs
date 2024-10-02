@@ -514,13 +514,7 @@ where
     }
 
     /// Returns a handler to code of the contract with specified code id.
-    pub fn contract_code<'a, 'b>(
-        &'a self,
-        code_id: u64,
-    ) -> AnyResult<ContractBox<'a, ExecC, QueryC>>
-    where
-        'a: 'b,
-    {
+    pub fn contract_code(&self, code_id: u64) -> AnyResult<ContractBox<ExecC, QueryC>> {
         let code = self.code_base.borrow().get(&code_id).cloned();
         if let Some(code) = code {
             Ok(ContractBox::Owned(Box::new(code)))
@@ -1346,8 +1340,8 @@ where
         }
     }
 
-    fn with_storage_readonly<'a, 'b, F, T>(
-        &'a self,
+    fn with_storage_readonly<F, T>(
+        &self,
         api: &dyn Api,
         storage: &dyn Storage,
         querier: &dyn Querier,
@@ -1356,11 +1350,10 @@ where
         action: F,
     ) -> AnyResult<T>
     where
-        F: FnOnce(ContractBox<'b, ExecC, QueryC>, Deps<QueryC>, Env) -> AnyResult<T>,
-        'a: 'b,
+        F: FnOnce(ContractBox<ExecC, QueryC>, Deps<QueryC>, Env) -> AnyResult<T>,
     {
         let contract = self.contract_data(storage, &address)?;
-        let handler = self.contract_code::<'a, 'b>(contract.code_id)?;
+        let handler = self.contract_code(contract.code_id)?;
         let storage = self.contract_storage(storage, &address);
         let env = self.get_env(address, block);
 
