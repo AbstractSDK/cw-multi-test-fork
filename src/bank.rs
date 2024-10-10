@@ -336,7 +336,7 @@ impl Module for BankKeeper {
         Ok(AppIbcReceiveResponse {
             events: vec![],
             // Default acknowledgment (defined here https://github.com/cosmos/ibc/blob/main/spec/app/ics-020-fungible-token-transfer/README.md#data-structures)
-            acknowledgement: Some(Binary::new("{\"result\": \"AQ==\"}".as_bytes().to_vec())),
+            acknowledgement: Some(Binary::from_base64("AQ==")?),
         })
     }
 
