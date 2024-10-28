@@ -3,6 +3,7 @@ use crate::wasm_emulation::storage::mock_storage::{GAS_COST_LAST_ITERATION, GAS_
 use crate::wasm_emulation::storage::CLONE_TESTING_STORAGE_LOG;
 
 use super::mock_storage::MockStorage;
+use async_std::task::block_on;
 use cosmrs::proto::cosmos::base::query::v1beta1::PageRequest;
 use cosmrs::proto::cosmwasm::wasm::v1::Model;
 use cosmwasm_std::Record;
@@ -11,6 +12,7 @@ use cosmwasm_vm::BackendError;
 use cosmwasm_vm::BackendResult;
 use cosmwasm_vm::GasInfo;
 use cosmwasm_vm::Storage;
+use cw_orch::daemon::RUNTIME;
 use num_bigint::{BigInt, Sign};
 use std::collections::HashMap;
 use std::iter;
@@ -109,12 +111,10 @@ impl Storage for DualStorage {
         // If it's not available, we query it online if it was not removed locally
         if !self.removed_keys.contains(key) && value.as_ref().unwrap().is_none() {
             log::debug!(target: CLONE_TESTING_STORAGE_LOG, "Value not set locally, fetching remote key");
-            let wasm_querier = CosmWasm::new_sync(self.remote.channel.clone(), &self.remote.rt);
+            let wasm_querier = CosmWasm::new_sync(self.remote.channel.clone(), RUNTIME.handle());
 
-            let distant_result = self
-                .remote
-                .rt
-                .block_on(wasm_querier._contract_raw_state(&self.contract_addr, key.to_vec()));
+            let distant_result =
+                block_on(wasm_querier._contract_raw_state(&self.contract_addr, key.to_vec()));
 
             if let Ok(result) = distant_result {
                 if !result.data.is_empty() {
@@ -198,21 +198,18 @@ impl Storage for DualStorage {
         if iterator.distant_iter.position == iterator.distant_iter.data.len()
             && iterator.distant_iter.key.is_some()
         {
-            let wasm_querier = CosmWasm::new_sync(self.remote.channel.clone(), &self.remote.rt);
-            let new_keys = self
-                .remote
-                .rt
-                .block_on(wasm_querier._all_contract_state(
-                    &self.contract_addr,
-                    Some(PageRequest {
-                        key: iterator.distant_iter.key.clone().unwrap(),
-                        offset: 0,
-                        limit: DISTANT_LIMIT,
-                        count_total: false,
-                        reverse: iterator.distant_iter.reverse,
-                    }),
-                ))
-                .unwrap_or_default();
+            let wasm_querier = CosmWasm::new_sync(self.remote.channel.clone(), RUNTIME.handle());
+            let new_keys = block_on(wasm_querier._all_contract_state(
+                &self.contract_addr,
+                Some(PageRequest {
+                    key: iterator.distant_iter.key.clone().unwrap(),
+                    offset: 0,
+                    limit: DISTANT_LIMIT,
+                    count_total: false,
+                    reverse: iterator.distant_iter.reverse,
+                }),
+            ))
+            .unwrap_or_default();
 
             // We make sure the data queried correspond to all the keys we need
             iterator

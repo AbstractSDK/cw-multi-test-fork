@@ -9,7 +9,6 @@ use cw20::Cw20QueryMsg;
 use cw_orch::daemon::networks::PHOENIX_1;
 
 use cosmwasm_std::Empty;
-use tokio::runtime::Runtime;
 
 pub fn main() {
     test().unwrap()
@@ -18,10 +17,8 @@ pub fn main() {
 pub fn test() -> anyhow::Result<()> {
     env_logger::init();
 
-    let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
     let remote_channel = RemoteChannel::new(
-        &runtime,
         chain.grpc_urls,
         chain.chain_id,
         chain.network_info.pub_address_prefix,

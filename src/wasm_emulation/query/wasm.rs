@@ -11,6 +11,7 @@ use crate::wasm_emulation::query::MockQuerier;
 use crate::Contract;
 
 use crate::wasm_emulation::contract::WasmContract;
+use async_std::task::block_on;
 use cosmwasm_std::testing::MockStorage;
 use cosmwasm_vm::GasInfo;
 
@@ -22,6 +23,7 @@ use cosmwasm_std::{ContractInfo, ContractResult};
 
 use cosmwasm_std::WasmQuery;
 use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch::daemon::RUNTIME;
 use serde::de::DeserializeOwned;
 
 use crate::wasm_emulation::channel::RemoteChannel;
@@ -148,12 +150,9 @@ impl<
                 {
                     local_contract.code_id
                 } else {
-                    let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), &remote.rt);
+                    let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), RUNTIME.handle());
 
-                    let code_info = remote
-                        .rt
-                        .block_on(wasm_querier._contract_info(&addr))
-                        .unwrap();
+                    let code_info = block_on(wasm_querier._contract_info(&addr)).unwrap();
 
                     code_info.code_id
                 };

@@ -12,7 +12,6 @@ use clone_cw_multi_test::{
 use cosmwasm_std::{Addr, Empty};
 use counter::msg::{ExecuteMsg, GetCountResponse, QueryMsg};
 use cw_orch::daemon::networks::PHOENIX_1;
-use tokio::runtime::Runtime;
 
 mod counter;
 
@@ -67,10 +66,8 @@ fn test() -> AnyResult<()> {
     )
     .unwrap();
 
-    let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
     let remote_channel = RemoteChannel::new(
-        &runtime,
         chain.grpc_urls,
         chain.chain_id,
         chain.network_info.pub_address_prefix,

@@ -3,8 +3,9 @@ use crate::{
     wasm_emulation::channel::RemoteChannel,
     BankKeeper, Distribution, Gov, Ibc, Module, Staking, WasmKeeper,
 };
+use async_std::task::block_on;
 use cosmwasm_std::{Addr, Api, Coin, CustomMsg, CustomQuery, Storage};
-use cw_orch::prelude::BankQuerier;
+use cw_orch::{daemon::RUNTIME, prelude::BankQuerier};
 use cw_utils::NativeBalance;
 use rustc_serialize::json::Json;
 use serde::de::DeserializeOwned;
@@ -140,13 +141,13 @@ impl StorageAnalyzer {
     pub fn compare_all_readable_contract_storage(&self) {
         let wasm_querier = cw_orch::daemon::queriers::CosmWasm::new_sync(
             self.remote.channel.clone(),
-            &self.remote.rt,
+            RUNTIME.handle(),
         );
         self.all_contract_storage()
             .into_iter()
             .for_each(|(contract_addr, key, value)| {
                 // We look for the data at that key on the contract
-                let distant_data = self.remote.rt.block_on(
+                let distant_data = block_on(
                     wasm_querier
                         ._contract_raw_state(&Addr::unchecked(contract_addr.clone()), key.clone()),
                 );
@@ -228,7 +229,7 @@ impl StorageAnalyzer {
     pub fn compare_all_balances(&self) {
         let bank_querier = cw_orch::daemon::queriers::Bank {
             channel: self.remote.channel.clone(),
-            rt_handle: Some(self.remote.rt.clone()),
+            rt_handle: Some(RUNTIME.handle().clone()),
         };
         self.get_all_local_balances()
             .into_iter()

@@ -4,7 +4,7 @@ use crate::wasm_emulation::instance::instance_from_reused_module;
 use crate::wasm_emulation::output::StorageChanges;
 use crate::wasm_emulation::query::MockQuerier;
 use crate::wasm_emulation::storage::DualStorage;
-use cosmwasm_std::Addr;
+use async_std::task::block_on;
 use cosmwasm_std::Checksum;
 use cosmwasm_std::CustomMsg;
 use cosmwasm_std::StdError;
@@ -17,6 +17,7 @@ use cw_orch::daemon::queriers::CosmWasm;
 use cosmwasm_std::Order;
 use cosmwasm_std::Storage;
 
+use cw_orch::daemon::RUNTIME;
 use serde::de::DeserializeOwned;
 use wasmer::Engine;
 use wasmer::Module;
@@ -109,15 +110,12 @@ impl WasmContract {
 
     pub fn new_distant_code_id(code_id: u64, remote: RemoteChannel) -> Self {
         let code = {
-            let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), &remote.rt);
+            let wasm_querier = CosmWasm::new_sync(remote.channel.clone(), RUNTIME.handle());
 
             let cache_key = format!("{}:{}", remote.chain_id, &code_id);
 
             let code = wasm_caching::maybe_cached_wasm(cache_key, || {
-                remote
-                    .rt
-                    .block_on(wasm_querier._code_data(code_id))
-                    .map_err(|e| e.into())
+                block_on(wasm_querier._code_data(code_id)).map_err(|e| e.into())
             })
             .unwrap();
 

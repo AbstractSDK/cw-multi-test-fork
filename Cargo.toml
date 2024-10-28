@@ -59,8 +59,9 @@ wasmer = { version = "4.3.0", default-features = false, features = [
 ] }
 
 # Caching
-cargo_metadata = "0.18" # For finding Cargo target dir
+cargo_metadata = "0.18"                                   # For finding Cargo target dir
 file-lock = "2.1"
+async-std = { version = "1.13.0", features = ["tokio1"] }
 
 [dev-dependencies]
 hex = "0.4.3"

@@ -1,8 +1,7 @@
+use async_std::task::block_on;
 use clone_cw_multi_test::{
     addons::{MockAddressGenerator, MockApiBech32},
-    wasm_emulation::{
-        channel::RemoteChannel, contract::WasmContract, storage::analyzer::StorageAnalyzer,
-    },
+    wasm_emulation::{channel::RemoteChannel, storage::analyzer::StorageAnalyzer},
     AppBuilder, BankKeeper, Executor, WasmKeeper,
 };
 use cosmwasm_schema::{cw_serde, QueryResponses};
@@ -10,7 +9,6 @@ use cosmwasm_std::{coins, Addr, BlockInfo, ContractInfoResponse, QueryRequest, W
 use cw20::BalanceResponse;
 use cw_orch::daemon::{networks::PHOENIX_1, queriers::Node};
 use std::path::Path;
-use tokio::runtime::Runtime;
 
 use cw20::Cw20QueryMsg;
 
@@ -56,10 +54,8 @@ pub fn test() -> anyhow::Result<()> {
     let currency = "ibc/B3504E092456BA618CC28AC671A71FB08C6CA0FD0BE7C8A5B5A3E2DD933CC9E4";
     let a_currency = "terra1gwdxyqtu75es0x5l6cd9flqhh87zjtj7qdankayyr0vtt7s9w4ssm7ds8m";
 
-    let runtime = Runtime::new()?;
     let chain = PHOENIX_1;
     let remote_channel = RemoteChannel::new(
-        &runtime,
         chain.grpc_urls,
         chain.chain_id,
         chain.network_info.pub_address_prefix,
@@ -71,10 +67,10 @@ pub fn test() -> anyhow::Result<()> {
 
     let bank = BankKeeper::new().with_remote(remote_channel.clone());
 
-    let block = runtime.block_on(
+    let block = block_on(
         Node {
             channel: remote_channel.channel.clone(),
-            rt_handle: Some(runtime.handle().clone()),
+            rt_handle: None,
         }
         ._block_info(),
     )?;

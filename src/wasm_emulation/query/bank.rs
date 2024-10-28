@@ -4,6 +4,7 @@ use crate::wasm_emulation::query::mock_querier::QueryResultWithGas;
 use cosmwasm_std::Addr;
 use cosmwasm_vm::GasInfo;
 
+use cw_orch::daemon::RUNTIME;
 use cw_utils::NativeBalance;
 
 use cw_orch::daemon::queriers::Bank;
@@ -15,6 +16,7 @@ use std::collections::HashMap;
 use cosmwasm_std::Uint128;
 use cosmwasm_std::{AllBalanceResponse, BalanceResponse, BankQuery};
 
+use async_std::task::block_on;
 use cosmwasm_std::to_json_binary;
 use cosmwasm_std::{ContractResult, SystemResult};
 
@@ -80,13 +82,11 @@ impl BankQuerier {
                 if amount.is_none() {
                     let querier = Bank {
                         channel: self.remote.channel.clone(),
-                        rt_handle: Some(self.remote.rt.clone()),
+                        rt_handle: Some(RUNTIME.handle().clone()),
                     };
 
-                    let query_result = self
-                        .remote
-                        .rt
-                        .block_on(querier._balance(&Addr::unchecked(address), Some(denom.clone())));
+                    let query_result =
+                        block_on(querier._balance(&Addr::unchecked(address), Some(denom.clone())));
                     if let Ok(distant_amount) = query_result {
                         amount = Some(distant_amount[0].amount)
                     }
@@ -106,12 +106,10 @@ impl BankQuerier {
                 if amount.is_none() {
                     let querier = Bank {
                         channel: self.remote.channel.clone(),
-                        rt_handle: Some(self.remote.rt.clone()),
+                        rt_handle: Some(RUNTIME.handle().clone()),
                     };
-                    let query_result: Result<Vec<Coin>, _> = self
-                        .remote
-                        .rt
-                        .block_on(querier._balance(&Addr::unchecked(address), None));
+                    let query_result: Result<Vec<Coin>, _> =
+                        block_on(querier._balance(&Addr::unchecked(address), None));
                     if let Ok(distant_amount) = query_result {
                         amount = Some(distant_amount)
                     }

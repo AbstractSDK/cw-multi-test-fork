@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::Result as AnyResult;
+use async_std::task::block_on;
 use cosmwasm_std::{Addr, Binary, CodeInfoResponse, CustomQuery, Order, Storage};
-use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch::daemon::{queriers::CosmWasm, RUNTIME};
 
 use crate::{
     prefixed_storage::prefixed_read,
@@ -15,16 +16,16 @@ pub struct WasmRemoteQuerier;
 
 impl WasmRemoteQuerier {
     pub fn code_info(remote: RemoteChannel, code_id: u64) -> AnyResult<CodeInfoResponse> {
-        let wasm_querier = CosmWasm::new_sync(remote.channel, &remote.rt);
+        let wasm_querier = CosmWasm::new_sync(remote.channel, RUNTIME.handle());
 
-        let code_info = remote.rt.block_on(wasm_querier._code(code_id))?;
+        let code_info = block_on(wasm_querier._code(code_id))?;
         Ok(code_info)
     }
 
     pub fn load_distant_contract(remote: RemoteChannel, address: &Addr) -> AnyResult<ContractData> {
-        let wasm_querier = CosmWasm::new_sync(remote.channel, &remote.rt);
+        let wasm_querier = CosmWasm::new_sync(remote.channel, RUNTIME.handle());
 
-        let code_info = remote.rt.block_on(wasm_querier._contract_info(address))?;
+        let code_info = block_on(wasm_querier._contract_info(address))?;
 
         Ok(ContractData {
             admin: code_info.admin.map(Addr::unchecked),
@@ -38,10 +39,8 @@ impl WasmRemoteQuerier {
         contract_addr: &Addr,
         key: Binary,
     ) -> AnyResult<Vec<u8>> {
-        let wasm_querier = CosmWasm::new_sync(remote.channel, &remote.rt);
-        let query_result = remote
-            .rt
-            .block_on(wasm_querier._contract_raw_state(contract_addr, key.to_vec()))
+        let wasm_querier = CosmWasm::new_sync(remote.channel, RUNTIME.handle());
+        let query_result = block_on(wasm_querier._contract_raw_state(contract_addr, key.to_vec()))
             .map(|query_result| query_result.data);
         Ok(query_result?)
     }
