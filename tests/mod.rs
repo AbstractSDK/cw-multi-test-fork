@@ -67,7 +67,6 @@ mod test_contracts {
 
             let sub_msg = SubMsg::reply_always(msg, REPLY_WITH_PAYLOAD_ID);
 
-            #[cfg(feature = "cosmwasm_2_0")]
             let sub_msg = sub_msg.with_payload(to_json_binary(REPLY_WITH_PAYLOAD_PAYLOAD)?);
             Ok(Response::default().add_submessage(sub_msg))
         }
@@ -83,9 +82,7 @@ mod test_contracts {
         fn reply(_deps: DepsMut, _env: Env, reply: Reply) -> Result<Response, StdError> {
             let Reply { payload, .. } = reply;
 
-            #[cfg(feature = "cosmwasm_2_0")]
             let decoded_payload: String = from_json(payload)?;
-            #[cfg(feature = "cosmwasm_2_0")]
             ensure_eq!(
                 decoded_payload,
                 REPLY_WITH_PAYLOAD_PAYLOAD,
