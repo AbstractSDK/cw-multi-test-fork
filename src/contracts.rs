@@ -675,7 +675,7 @@ where
 {
     SubMsg {
         id: msg.id,
-        payload: Binary::default(),
+        payload: msg.payload.clone(),
         msg: match msg.msg {
             CosmosMsg::Wasm(wasm) => CosmosMsg::Wasm(wasm),
             CosmosMsg::Bank(bank) => CosmosMsg::Bank(bank),
