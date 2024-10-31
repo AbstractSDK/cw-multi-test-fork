@@ -9,6 +9,7 @@ mod test_bank;
 mod test_contract_storage;
 mod test_ibc;
 mod test_module;
+mod test_payload;
 mod test_prefixed_storage;
 #[cfg(feature = "staking")]
 mod test_staking;
@@ -17,25 +18,24 @@ mod test_wasm;
 mod test_contracts {
 
     pub mod counter {
+        use cosmwasm_schema::cw_serde;
         use cosmwasm_std::{
             ensure_eq, from_json, to_json_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo,
             Reply, Response, StdError, SubMsg, WasmMsg,
         };
         use cw_multi_test::{Contract, ContractWrapper};
         use cw_storage_plus::Item;
-        use serde::{Deserialize, Serialize};
 
         const COUNTER: Item<u64> = Item::new("counter");
         pub const REPLY_WITH_PAYLOAD_ID: u64 = 56;
         pub const REPLY_WITH_PAYLOAD_PAYLOAD: &str = "This is my favorite payload";
 
-        #[derive(Debug, Clone, Serialize, Deserialize)]
-        #[serde(rename_all = "snake_case")]
+        #[cw_serde]
         pub enum CounterQueryMsg {
             Counter {},
         }
 
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[cw_serde]
         pub struct CounterResponseMsg {
             pub value: u64,
         }
