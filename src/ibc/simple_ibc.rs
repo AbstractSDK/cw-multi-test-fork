@@ -435,14 +435,14 @@ impl IbcSimpleModule {
         Ok(AppResponse { data: None, events })
     }
 
-    fn send_packet(
+    fn _send_packet(
         &self,
         storage: &mut dyn Storage,
         port_id: String,
         channel_id: String,
         data: Binary,
         timeout: IbcTimeout,
-    ) -> AnyResult<crate::AppResponse> {
+    ) -> AnyResult<(u64, crate::AppResponse)> {
         let mut ibc_storage = prefixed(storage, NAMESPACE_IBC);
 
         // On this storage, we need to get the id of the transfer packet
@@ -509,7 +509,20 @@ impl IbcSimpleModule {
             .add_attribute("packet_connection", channel_info.info.connection_id);
 
         let events = vec![send_event];
-        Ok(AppResponse { data: None, events })
+        Ok((packet.sequence, AppResponse { data: None, events }))
+    }
+
+    fn send_packet(
+        &self,
+        storage: &mut dyn Storage,
+        port_id: String,
+        channel_id: String,
+        data: Binary,
+        timeout: IbcTimeout,
+    ) -> AnyResult<crate::AppResponse> {
+        let (_sequence, response) =
+            self._send_packet(storage, port_id, channel_id, data, timeout)?;
+        Ok(response)
     }
 
     fn receive_packet<ExecC, QueryC>(
@@ -1015,14 +1028,31 @@ impl IbcSimpleModule {
             memo: None,
         };
 
-        self.send_packet(
+        let (sequence, mut app_response) = self._send_packet(
             storage,
             "transfer".to_string(),
             channel_id,
             to_json_binary(&packet_formed)?,
             timeout,
-        )
+        )?;
+        app_response.data = Some(ics20_transfer_response(sequence));
+        Ok(app_response)
     }
+}
+
+use prost::Message;
+#[derive(Clone, PartialEq, Message)]
+struct MsgTransferResponse {
+    #[prost(uint64, tag = "1")]
+    pub sequence: u64,
+}
+
+// empty return if no data present in original
+fn ics20_transfer_response(sequence: u64) -> Binary {
+    let response_data = MsgTransferResponse { sequence };
+    let mut new_data = Vec::<u8>::with_capacity(response_data.encoded_len());
+    response_data.encode(&mut new_data).unwrap();
+    new_data.into()
 }
 
 impl Module for IbcSimpleModule {
