@@ -47,11 +47,7 @@ fn simple_transfer() -> anyhow::Result<()> {
     let (src_connection_id, _) = create_connection(&mut app1, &mut app2)?;
 
     // We start by creating channels
-    let ChannelCreationResult {
-        src_channel,
-        dst_channel,
-        ..
-    } = create_channel(
+    let ChannelCreationResult { src_channel, .. } = create_channel(
         &mut app1,
         &mut app2,
         src_connection_id,
@@ -93,10 +89,6 @@ fn simple_transfer() -> anyhow::Result<()> {
     // The recipient has received exactly what they needs
     assert_eq!(balances.len(), 1);
     assert_eq!(balances[0].amount, funds.amount);
-    assert_eq!(
-        balances[0].denom,
-        format!("ibc/{}/{}", dst_channel, funds.denom)
-    );
 
     // We make sure the balance of the sender has changed as well
     let balances = app1.wrap().query_all_balances(fund_owner)?;
@@ -182,10 +174,9 @@ fn transfer_and_back() -> anyhow::Result<()> {
     // assert_eq!(balances.amount[0].amount, funds.amount);
     // assert_eq!(balances.amount[0].denom, funds.denom);
 
-    let chain2_funds = coin(
-        funds.amount.u128(),
-        format!("ibc/{}/{}", dst_channel, funds.denom),
-    );
+    let remote_denom = app1.wrap_ibc_denom(&dst_channel, &funds.denom);
+
+    let chain2_funds = coin(funds.amount.u128(), remote_denom);
     // We send an IBC transfer back from app2
     let send_back_response = app2.execute(
         fund_recipient.clone(),

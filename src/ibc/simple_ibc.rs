@@ -1002,6 +1002,7 @@ impl IbcSimpleModule {
         to_address: String,
         amount: Coin,
         timeout: IbcTimeout,
+        memo: Option<String>,
     ) -> AnyResult<crate::AppResponse>
     where
         ExecC: CustomMsg,
@@ -1017,7 +1018,7 @@ impl IbcSimpleModule {
         router.execute(api, storage, block, sender.clone(), msg)?;
 
         // We unwrap the denom if the funds were received on this specific channel
-        let denom = optional_unwrap_ibc_denom(amount.denom, channel_id.clone());
+        let denom = optional_unwrap_ibc_denom(storage, amount.denom, channel_id.clone());
 
         // 2. Send an ICS20 Packet to the remote chain
         let packet_formed = Ics20Packet {
@@ -1025,7 +1026,7 @@ impl IbcSimpleModule {
             denom,
             receiver: to_address,
             sender: sender.to_string(),
-            memo: None,
+            memo,
         };
 
         let (sequence, mut app_response) = self._send_packet(
@@ -1079,10 +1080,9 @@ impl Module for IbcSimpleModule {
                 to_address,
                 amount,
                 timeout,
-                // We could add IBC-hooks capabilities here
-                memo: _,
+                memo,
             } => self.transfer(
-                api, storage, router, block, sender, channel_id, to_address, amount, timeout,
+                api, storage, router, block, sender, channel_id, to_address, amount, timeout, memo,
             ),
             IbcMsg::SendPacket {
                 channel_id,
