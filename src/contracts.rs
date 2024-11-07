@@ -3,13 +3,14 @@
 use crate::error::{anyhow, bail, AnyError, AnyResult};
 use cosmwasm_std::{
     from_json, Binary, Checksum, CosmosMsg, CustomMsg, CustomQuery, Deps, DepsMut, Empty, Env,
-    MessageInfo, QuerierWrapper, Reply, Response, SubMsg,
+    IbcSourceCallbackMsg, MessageInfo, QuerierWrapper, Reply, Response, SubMsg,
 };
 use cosmwasm_std::{
     IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg, IbcChannelOpenMsg,
     IbcChannelOpenResponse, IbcPacketAckMsg, IbcPacketReceiveMsg, IbcPacketTimeoutMsg,
     IbcReceiveResponse,
 };
+use ibc::{IbcClosure, IbcFn};
 use serde::de::DeserializeOwned;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
@@ -109,6 +110,19 @@ where
     ) -> AnyResult<IbcBasicResponse<C>> {
         bail!("No Ibc capabilities on this contract")
     }
+    
+    /// Executes the contract ibc_source_callback endpoint
+    #[allow(unused)]
+    fn ibc_source_callback(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: IbcSourceCallbackMsg,
+    ) -> AnyResult<IbcBasicResponse<C>> {
+        bail!("No Ibc source callback on this contract")
+    }
+
+
 }
 
 #[rustfmt::skip]
@@ -116,20 +130,23 @@ mod closures {
     use super::*;
 
     // function types
-    pub type IbcFn<T, R, E, Q> = fn(deps: DepsMut<Q>, env: Env, msg: T) -> Result<R, E>;
-
     pub type ContractFn<T, C, E, Q> = fn(deps: DepsMut<Q>, env: Env, info: MessageInfo, msg: T) -> Result<Response<C>, E>;
     pub type PermissionedFn<T, C, E, Q> = fn(deps: DepsMut<Q>, env: Env, msg: T) -> Result<Response<C>, E>;
     pub type ReplyFn<C, E, Q> = fn(deps: DepsMut<Q>, env: Env, msg: Reply) -> Result<Response<C>, E>;
     pub type QueryFn<T, E, Q> = fn(deps: Deps<Q>, env: Env, msg: T) -> Result<Binary, E>;
 
     // closure types
-    pub type IbcClosure<T, R, E, Q> = Box<dyn Fn(DepsMut<Q>,Env, T) -> Result<R, E>>;
-
     pub type ContractClosure<T, C, E, Q> = Box<dyn Fn(DepsMut<Q>, Env, MessageInfo, T) -> Result<Response<C>, E>>;
     pub type PermissionedClosure<T, C, E, Q> = Box<dyn Fn(DepsMut<Q>, Env, T) -> Result<Response<C>, E>>;
     pub type ReplyClosure<C, E, Q> = Box<dyn Fn(DepsMut<Q>, Env, Reply) -> Result<Response<C>, E>>;
     pub type QueryClosure<T, E, Q> = Box<dyn Fn(Deps<Q>, Env, T) -> Result<Binary, E>>;
+
+    pub mod ibc{
+        use super::*;
+        pub type IbcFn<T, R, E, Q> = fn(deps: DepsMut<Q>, env: Env, msg: T) -> Result<R, E>;
+
+        pub type IbcClosure<T, R, E, Q> = Box<dyn Fn(DepsMut<Q>,Env, T) -> Result<R, E>>;
+    }
 }
 
 use closures::*;
@@ -233,6 +250,7 @@ pub struct ContractWrapper<
     E10 = AnyError,
     E11 = AnyError,
     E12 = AnyError,
+    E13 = AnyError,
 > where
     T1: DeserializeOwned, // Type of message passed to `execute` entry-point.
     T2: DeserializeOwned, // Type of message passed to `instantiate` entry-point.
@@ -251,6 +269,7 @@ pub struct ContractWrapper<
     E10: Display + Debug + Send + Sync, // Type of error returned from `ibc_packet_receive` entry-point.
     E11: Display + Debug + Send + Sync, // Type of error returned from `ibc_packet_ack` entry-point.
     E12: Display + Debug + Send + Sync, // Type of error returned from `ibc_packet_timeout` entry-point.
+    E13: Display + Debug + Send + Sync, // Type of error returned from `ibc_source_callback` entry-point.
     C: CustomMsg, // Type of custom message returned from all entry-points except `query`.
     Q: CustomQuery + DeserializeOwned, // Type of custom query in querier passed as deps/deps_mut to all entry-points.
 {
@@ -269,6 +288,8 @@ pub struct ContractWrapper<
     ibc_packet_receive_fn: Option<IbcClosure<IbcPacketReceiveMsg, IbcReceiveResponse<C>, E10, Q>>,
     ibc_packet_ack_fn: Option<IbcClosure<IbcPacketAckMsg, IbcBasicResponse<C>, E11, Q>>,
     ibc_packet_timeout_fn: Option<IbcClosure<IbcPacketTimeoutMsg, IbcBasicResponse<C>, E12, Q>>,
+
+    ibc_source_callback: Option<IbcClosure<IbcSourceCallbackMsg, IbcBasicResponse<C>, E13, Q>>,
 }
 
 impl<T1, T2, T3, E1, E2, E3, C, Q> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q>
@@ -304,6 +325,8 @@ where
             ibc_packet_receive_fn: None,
             ibc_packet_ack_fn: None,
             ibc_packet_timeout_fn: None,
+
+            ibc_source_callback: None,
         }
     }
 
@@ -330,13 +353,36 @@ where
             ibc_packet_receive_fn: None,
             ibc_packet_ack_fn: None,
             ibc_packet_timeout_fn: None,
+
+            ibc_source_callback: None,
         }
     }
 }
 
 #[allow(clippy::type_complexity)]
-impl<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6, E6>
-    ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6, E6>
+impl<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6, E6, E7, E8, E9, E10, E11, E12, E13>
+    ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
 where
     T1: DeserializeOwned, // Type of message passed to `execute` entry-point.
     T2: DeserializeOwned, // Type of message passed to `instantiate` entry-point.
@@ -349,6 +395,13 @@ where
     E4: Display + Debug + Send + Sync, // Type of error returned from `sudo` entry-point.
     E5: Display + Debug + Send + Sync, // Type of error returned from `reply` entry-point.
     E6: Display + Debug + Send + Sync, // Type of error returned from `migrate` entry-point.
+    E7: Display + Debug + Send + Sync, // Type of error returned from `channel_open` entry-point.
+    E8: Display + Debug + Send + Sync, // Type of error returned from `channel_connect` entry-point.
+    E9: Display + Debug + Send + Sync, // Type of error returned from `channel_close` entry-point.
+    E10: Display + Debug + Send + Sync, // Type of error returned from `ibc_packet_receive` entry-point.
+    E11: Display + Debug + Send + Sync, // Type of error returned from `ibc_packet_ack` entry-point.
+    E12: Display + Debug + Send + Sync, // Type of error returned from `ibc_packet_timeout` entry-point.
+    E13: Display + Debug + Send + Sync, // Type of error returned from `ibc_source_callback` entry-point.
     C: CustomMsg + 'static, // Type of custom message returned from all entry-points except `query`.
     Q: CustomQuery + DeserializeOwned + 'static, // Type of custom query in querier passed as deps/deps_mut to all entry-points.
 {
@@ -356,7 +409,28 @@ where
     pub fn with_sudo<T4A, E4A>(
         self,
         sudo_fn: PermissionedFn<T4A, C, E4A, Q>,
-    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4A, E4A, E5, T6, E6>
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4A,
+        E4A,
+        E5,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
     where
         T4A: DeserializeOwned + 'static,
         E4A: Display + Debug + Send + Sync + 'static,
@@ -377,6 +451,8 @@ where
             ibc_packet_receive_fn: self.ibc_packet_receive_fn,
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: self.ibc_source_callback,
         }
     }
 
@@ -384,7 +460,28 @@ where
     pub fn with_sudo_empty<T4A, E4A>(
         self,
         sudo_fn: PermissionedFn<T4A, Empty, E4A, Empty>,
-    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4A, E4A, E5, T6, E6>
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4A,
+        E4A,
+        E5,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
     where
         T4A: DeserializeOwned + 'static,
         E4A: Display + Debug + Send + Sync + 'static,
@@ -405,6 +502,8 @@ where
             ibc_packet_receive_fn: self.ibc_packet_receive_fn,
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: self.ibc_source_callback,
         }
     }
 
@@ -412,7 +511,28 @@ where
     pub fn with_reply<E5A>(
         self,
         reply_fn: ReplyFn<C, E5A, Q>,
-    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5A, T6, E6>
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5A,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
     where
         E5A: Display + Debug + Send + Sync + 'static,
     {
@@ -432,6 +552,8 @@ where
             ibc_packet_receive_fn: self.ibc_packet_receive_fn,
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: self.ibc_source_callback,
         }
     }
 
@@ -439,7 +561,28 @@ where
     pub fn with_reply_empty<E5A>(
         self,
         reply_fn: ReplyFn<Empty, E5A, Empty>,
-    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5A, T6, E6>
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5A,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
     where
         E5A: Display + Debug + Send + Sync + 'static,
     {
@@ -459,6 +602,8 @@ where
             ibc_packet_receive_fn: self.ibc_packet_receive_fn,
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: self.ibc_source_callback,
         }
     }
 
@@ -466,7 +611,28 @@ where
     pub fn with_migrate<T6A, E6A>(
         self,
         migrate_fn: PermissionedFn<T6A, C, E6A, Q>,
-    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6A, E6A>
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5,
+        T6A,
+        E6A,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
     where
         T6A: DeserializeOwned + 'static,
         E6A: Display + Debug + Send + Sync + 'static,
@@ -487,6 +653,8 @@ where
             ibc_packet_receive_fn: self.ibc_packet_receive_fn,
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: self.ibc_source_callback,
         }
     }
 
@@ -494,7 +662,28 @@ where
     pub fn with_migrate_empty<T6A, E6A>(
         self,
         migrate_fn: PermissionedFn<T6A, Empty, E6A, Empty>,
-    ) -> ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6A, E6A>
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5,
+        T6A,
+        E6A,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
     where
         T6A: DeserializeOwned + 'static,
         E6A: Display + Debug + Send + Sync + 'static,
@@ -515,6 +704,8 @@ where
             ibc_packet_receive_fn: self.ibc_packet_receive_fn,
             ibc_packet_ack_fn: self.ibc_packet_ack_fn,
             ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: self.ibc_source_callback,
         }
     }
 
@@ -554,6 +745,7 @@ where
         E10A,
         E11A,
         E12A,
+        E13,
     >
     where
         E7A: Display + Debug + Send + Sync + 'static,
@@ -579,6 +771,57 @@ where
             ibc_packet_receive_fn: Some(Box::new(ibc_packet_receive_fn)),
             ibc_packet_ack_fn: Some(Box::new(ibc_packet_ack_fn)),
             ibc_packet_timeout_fn: Some(Box::new(ibc_packet_timeout_fn)),
+
+            ibc_source_callback: self.ibc_source_callback,
+        }
+    }
+    /// Adding IBC endpoint capabilities
+    pub fn with_ibc_source_callback<E13A>(
+        self,
+        ibc_source_callback: IbcFn<IbcSourceCallbackMsg, IbcBasicResponse<C>, E13A, Q>,
+    ) -> ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13A,
+    >
+    where
+        E13A: Display + Debug + Send + Sync + 'static,
+    {
+        ContractWrapper {
+            execute_fn: self.execute_fn,
+            instantiate_fn: self.instantiate_fn,
+            query_fn: self.query_fn,
+            sudo_fn: self.sudo_fn,
+            reply_fn: self.reply_fn,
+            migrate_fn: self.migrate_fn,
+            checksum: None,
+
+            channel_open_fn: self.channel_open_fn,
+            channel_connect_fn: self.channel_connect_fn,
+            channel_close_fn: self.channel_close_fn,
+
+            ibc_packet_receive_fn: self.ibc_packet_receive_fn,
+            ibc_packet_ack_fn: self.ibc_packet_ack_fn,
+            ibc_packet_timeout_fn: self.ibc_packet_timeout_fn,
+
+            ibc_source_callback: Some(Box::new(ibc_source_callback)),
         }
     }
 }
@@ -695,8 +938,30 @@ where
     }
 }
 
-impl<T1, T2, T3, E1, E2, E3, C, T4, E4, E5, T6, E6, E7, E8, E9, E10, E11, E12, Q> Contract<C, Q>
-    for ContractWrapper<T1, T2, T3, E1, E2, E3, C, Q, T4, E4, E5, T6, E6, E7, E8, E9, E10, E11, E12>
+impl<T1, T2, T3, E1, E2, E3, C, T4, E4, E5, T6, E6, E7, E8, E9, E10, E11, E12, E13, Q>
+    Contract<C, Q>
+    for ContractWrapper<
+        T1,
+        T2,
+        T3,
+        E1,
+        E2,
+        E3,
+        C,
+        Q,
+        T4,
+        E4,
+        E5,
+        T6,
+        E6,
+        E7,
+        E8,
+        E9,
+        E10,
+        E11,
+        E12,
+        E13,
+    >
 where
     T1: DeserializeOwned, // Type of message passed to `execute` entry-point.
     T2: DeserializeOwned, // Type of message passed to `instantiate` entry-point.
@@ -715,6 +980,7 @@ where
     E10: Display + Debug + Send + Sync + 'static, // Type of error returned from `ibc_packet_receive` entry-point.
     E11: Display + Debug + Send + Sync + 'static, // Type of error returned from `ibc_packet_ack` entry-point.
     E12: Display + Debug + Send + Sync + 'static, // Type of error returned from `ibc_packet_timeout` entry-point.
+    E13: Display + Debug + Send + Sync + 'static, // Type of error returned from `ibc_source_callback` entry-point.
     C: CustomMsg, // Type of custom message returned from all entry-points except `query`.
     Q: CustomQuery + DeserializeOwned, // Type of custom query in querier passed as deps/deps_mut to all entry-points.
 {
@@ -860,6 +1126,20 @@ where
         match &self.ibc_packet_timeout_fn {
             Some(packet_timeout) => packet_timeout(deps, env, msg).map_err(|err| anyhow!(err)),
             None => bail!("packet timeout not implemented for contract"),
+        }
+    }
+
+    fn ibc_source_callback(
+        &self,
+        deps: DepsMut<Q>,
+        env: Env,
+        msg: IbcSourceCallbackMsg,
+    ) -> AnyResult<IbcBasicResponse<C>> {
+        match &self.ibc_source_callback {
+            Some(ibc_source_callback) => {
+                ibc_source_callback(deps, env, msg).map_err(|err| anyhow!(err))
+            }
+            None => bail!("ibc source callback not implemented for contract"),
         }
     }
 }

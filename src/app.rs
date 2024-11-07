@@ -6,6 +6,7 @@ use crate::featured::staking::{
     Distribution, DistributionKeeper, StakeKeeper, Staking, StakingSudo,
 };
 use crate::gov::Gov;
+use crate::ibc::types::MockIbcPort;
 use crate::ibc::{
     types::IbcResponse, types::MockIbcQuery, IbcModuleMsg, IbcPacketRelayingMsg as IbcSudo,
 };
@@ -20,9 +21,10 @@ use crate::{AppBuilder, GovFailingModule, Stargate, StargateFailing};
 use cosmwasm_std::testing::{MockApi, MockStorage};
 use cosmwasm_std::{
     from_json, to_json_binary, Addr, Api, Binary, BlockInfo, ContractResult, CosmosMsg, CustomMsg,
-    CustomQuery, Empty, Querier, QuerierResult, QuerierWrapper, QueryRequest, Record, Storage,
-    SystemError, SystemResult,
+    CustomQuery, Empty, IbcSourceCallbackMsg, Querier, QuerierResult, QuerierWrapper, QueryRequest,
+    Record, Storage, SystemError, SystemResult,
 };
+use cw20_ics20::ibc::Ics20Packet;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -665,6 +667,17 @@ pub trait CosmosRouter {
         block: &BlockInfo,
         msg: IbcRouterMsg,
     ) -> AnyResult<IbcResponse>;
+
+    /// Evaluates ibc_source_callback related actions
+    fn ibc_source_callback(
+        &self,
+        _api: &dyn Api,
+        _storage: &mut dyn Storage,
+        _block: &BlockInfo,
+        _msg: IbcSourceCallbackMsg,
+    ) -> AnyResult<IbcResponse> {
+        bail!("No ibc source callback implemented")
+    }
 }
 
 impl<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT> CosmosRouter
@@ -852,6 +865,54 @@ where
                     .ibc_packet_timeout(api, contract_addr, storage, self, block, m)
                     .map(Into::into),
             },
+        }
+    }
+
+    /// Evaluates ibc_source_callback related actions
+    fn ibc_source_callback(
+        &self,
+        api: &dyn Api,
+        storage: &mut dyn Storage,
+        block: &BlockInfo,
+        msg: IbcSourceCallbackMsg,
+    ) -> AnyResult<IbcResponse> {
+        let (module_port, packet): (IbcModule, _) = match &msg {
+            IbcSourceCallbackMsg::Acknowledgement(ibc_ack_callback_msg) => {
+                let module_port: MockIbcPort =
+                    ibc_ack_callback_msg.original_packet.src.port_id.parse()?;
+                (
+                    module_port.into(),
+                    ibc_ack_callback_msg.original_packet.clone(),
+                )
+            }
+            IbcSourceCallbackMsg::Timeout(ibc_timeout_callback_msg) => {
+                let module_port: MockIbcPort =
+                    ibc_timeout_callback_msg.packet.src.port_id.parse()?;
+                (module_port.into(), ibc_timeout_callback_msg.packet.clone())
+            }
+        };
+
+        // For now, only the Bank module has a middleware registered with `wasm` being the contract keeper
+        match module_port {
+            IbcModule::Wasm(_) => {
+                bail!("No callback middleware for wasm in cw-multi-test")
+            }
+            IbcModule::Bank => {
+                // If it's a message sent by the bank module, it must have the ICS20 format
+                let packet_data: Ics20Packet = from_json(&packet.data)?;
+
+                self.wasm
+                    .ibc_source_callback(
+                        api,
+                        Addr::unchecked(packet_data.sender),
+                        storage,
+                        self,
+                        block,
+                        msg,
+                    )
+                    .map(Into::into)
+            }
+            IbcModule::Staking => bail!("No callback middleware for staking in cw-multi-test"),
         }
     }
 }

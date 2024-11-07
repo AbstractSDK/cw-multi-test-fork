@@ -1,7 +1,7 @@
 use crate::app::CosmosRouter;
 use crate::error::{bail, AnyResult};
 use crate::executor::AppResponse;
-use crate::ibc::types::{AppIbcBasicResponse, AppIbcReceiveResponse};
+use crate::ibc::types::{AppIbcBasicResponse, AppIbcReceiveResponse, IbcHookAcknowledgement};
 use crate::module::Module;
 use crate::prefixed_storage::{prefixed, prefixed_read};
 use crate::{App, Distribution, Gov, Ibc, Staking, Stargate, Wasm};
@@ -10,7 +10,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     coin, to_json_binary, wasm_execute, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg,
     BankQuery, Binary, BlockInfo, Coin, CustomMsg, CustomQuery, DenomMetadata, Event, Querier,
-    Storage,
+    StdAck, Storage,
 };
 #[cfg(feature = "cosmwasm_1_3")]
 use cosmwasm_std::{AllDenomMetadataResponse, DenomMetadataResponse};
@@ -385,7 +385,8 @@ impl Module for BankKeeper {
             funds
         };
 
-        let events = if let Some((sender, contract_addr, msg)) = contract_exec {
+        let ics20_ack = StdAck::success(b"\x01").to_binary();
+        let (events, acknowledgement) = if let Some((sender, contract_addr, msg)) = contract_exec {
             let contract_result = router.execute(
                 api,
                 storage,
@@ -393,15 +394,21 @@ impl Module for BankKeeper {
                 sender,
                 wasm_execute(contract_addr, &msg, funds)?.into(),
             )?;
-            contract_result.events
+
+            let ack = IbcHookAcknowledgement {
+                contract_result: contract_result.data,
+                ibc_ack: Some(ics20_ack),
+            };
+
+            (contract_result.events, Some(to_json_binary(&ack)?))
         } else {
-            vec![]
+            (vec![], Some(ics20_ack))
         };
 
         Ok(AppIbcReceiveResponse {
             events,
             // Default acknowledgment (defined here https://github.com/cosmos/ibc/blob/main/spec/app/ics-020-fungible-token-transfer/README.md#data-structures)
-            acknowledgement: Some(Binary::new("{\"result\": \"AQ==\"}".as_bytes().to_vec())),
+            acknowledgement,
         })
     }
 

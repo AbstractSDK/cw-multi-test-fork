@@ -1,4 +1,5 @@
 use anyhow::bail;
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     Addr, Binary, Event, IbcChannel, IbcChannelOpenResponse, IbcEndpoint, IbcOrder, IbcPacket,
     IbcQuery, IbcTimeout,
@@ -232,4 +233,10 @@ impl From<IbcQuery> for MockIbcQuery {
     fn from(value: IbcQuery) -> Self {
         MockIbcQuery::CosmWasm(value)
     }
+}
+
+#[cw_serde]
+pub struct IbcHookAcknowledgement {
+    pub contract_result: Option<Binary>,
+    pub ibc_ack: Option<Binary>,
 }

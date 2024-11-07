@@ -1,12 +1,13 @@
 use anyhow::{anyhow, bail};
 use cosmwasm_std::{
-    ensure_eq, to_json_binary, Addr, BankMsg, Binary, ChannelResponse, Coin, CustomMsg, Event,
-    IbcAcknowledgement, IbcChannel, IbcChannelCloseMsg, IbcChannelConnectMsg, IbcChannelOpenMsg,
-    IbcEndpoint, IbcMsg, IbcOrder, IbcPacket, IbcPacketAckMsg, IbcPacketReceiveMsg,
-    IbcPacketTimeoutMsg, IbcQuery, IbcTimeout, IbcTimeoutBlock, ListChannelsResponse, Order,
-    Storage,
+    ensure_eq, from_json, to_json_binary, Addr, BankMsg, Binary, ChannelResponse, Coin, CustomMsg,
+    Event, IbcAckCallbackMsg, IbcAcknowledgement, IbcChannel, IbcChannelCloseMsg,
+    IbcChannelConnectMsg, IbcChannelOpenMsg, IbcEndpoint, IbcMsg, IbcOrder, IbcPacket,
+    IbcPacketAckMsg, IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcQuery, IbcTimeout,
+    IbcTimeoutBlock, ListChannelsResponse, Order, Storage,
 };
 use cw20_ics20::ibc::Ics20Packet;
+use serde_json::Value;
 
 use crate::{
     app::IbcRouterMsg,
@@ -816,10 +817,11 @@ impl IbcSimpleModule {
             ),
             &acknowledgement,
         )?;
+        let original_packet = packet.clone();
 
         let ack_message = IbcPacketAckMsg::new(
-            acknowledgement,
-            packet.clone(),
+            acknowledgement.clone(),
+            original_packet.clone(),
             Addr::unchecked(RELAYER_ADDR),
         );
 
@@ -830,8 +832,8 @@ impl IbcSimpleModule {
                 write_cache,
                 block,
                 IbcRouterMsg {
-                    module: port.into(),
-                    msg: super::IbcModuleMsg::PacketAcknowledgement(ack_message),
+                    module: port.clone().into(),
+                    msg: super::IbcModuleMsg::PacketAcknowledgement(ack_message.clone()),
                 },
             )
         })?;
@@ -867,6 +869,35 @@ impl IbcSimpleModule {
             .add_attribute("packet_connection", channel_info.info.connection_id);
 
         events.push(ack_event);
+
+        // Finally, we check that the packet has a callback associated.
+        // If it does, we execute the callback and push the events
+        // Finally we execute the Packet Callback, without failing on error
+        if let Ok(packet) = from_json::<Ics20Packet>(&packet.data) {
+            let json: Value = serde_json::from_str(&packet.memo.unwrap_or("{}".to_string()))?;
+            if json.get("src_callback").is_some() {
+                let callback_res = transactional(storage, |write_cache, _| {
+                    router.ibc_source_callback(
+                        api,
+                        write_cache,
+                        block,
+                        cosmwasm_std::IbcSourceCallbackMsg::Acknowledgement(
+                            IbcAckCallbackMsg::new(
+                                acknowledgement,
+                                original_packet,
+                                Addr::unchecked(RELAYER_ADDR),
+                            ),
+                        ),
+                    )
+                });
+                let callback_events = match callback_res {
+                    // Only type allowed as an ack response
+                    Ok(IbcResponse::Basic(r)) => r.events,
+                    _ => vec![],
+                };
+                events.extend(callback_events);
+            }
+        }
 
         Ok(AppResponse { data: None, events })
     }
