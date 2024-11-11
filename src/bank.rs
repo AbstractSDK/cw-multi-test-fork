@@ -1,30 +1,34 @@
-use crate::app::CosmosRouter;
-use crate::error::{bail, AnyResult};
-use crate::executor::AppResponse;
-use crate::ibc::types::{
-    keccak256, AppIbcBasicResponse, AppIbcReceiveResponse, IbcHookAcknowledgement,
+use crate::ibc::memo::ibc_hooks::IBCLifecycleComplete;
+use crate::{
+    app::CosmosRouter,
+    error::{bail, AnyResult},
+    executor::AppResponse,
+    ibc::{
+        memo::ibc_hooks::{
+            parse_ibc_hooks_callback_memo, parse_ibc_hooks_memo, IbcHooksCallbackSudoMsg,
+        },
+        types::{keccak256, AppIbcBasicResponse, AppIbcReceiveResponse, IbcHookAcknowledgement},
+    },
+    module::Module,
+    prefixed_storage::{prefixed, prefixed_read},
+    App, Distribution, Gov, Ibc, Staking, Stargate, SudoMsg, Wasm, WasmSudo,
 };
-use crate::module::Module;
-use crate::prefixed_storage::{prefixed, prefixed_read};
-use crate::{App, Distribution, Gov, Ibc, Staking, Stargate, Wasm};
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     coin, to_json_binary, wasm_execute, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg,
     BankQuery, Binary, BlockInfo, Coin, CustomMsg, CustomQuery, DenomMetadata, Event, Querier,
     StdAck, Storage,
 };
+use cosmwasm_std::{coins, from_json, IbcPacketAckMsg, IbcPacketReceiveMsg};
 #[cfg(feature = "cosmwasm_1_3")]
 use cosmwasm_std::{AllDenomMetadataResponse, DenomMetadataResponse};
 #[cfg(feature = "cosmwasm_1_1")]
 use cosmwasm_std::{Order, StdResult, SupplyResponse, Uint128};
+use cw20_ics20::ibc::Ics20Packet;
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
 use itertools::Itertools;
 use schemars::JsonSchema;
-
-use crate::ibc::memo::ibc_hooks::parse_ibc_hooks_memo;
-use cosmwasm_std::{coins, from_json, IbcPacketAckMsg, IbcPacketReceiveMsg};
-use cw20_ics20::ibc::Ics20Packet;
 use serde::de::DeserializeOwned;
 
 /// Collection of bank balances.
@@ -37,6 +41,8 @@ const DENOM_METADATA: Map<String, DenomMetadata> = Map::new("metadata");
 const NAMESPACE_BANK: &[u8] = b"bank";
 /// Default address for the locked IBC funds.
 pub const IBC_LOCK_MODULE_ADDRESS: &str = "ibc_bank_lock_module";
+/// Acknowledgement corresponding to a successful transfer
+pub const SUCCESS_BANK_ACK: &[u8] = b"\x01";
 
 #[cw_serde]
 pub struct IbcDenom {
@@ -361,7 +367,7 @@ impl Module for BankKeeper {
             funds
         };
 
-        let ics20_ack = StdAck::success(b"\x01").to_binary();
+        let ics20_ack = StdAck::success(SUCCESS_BANK_ACK).to_binary();
         let (events, acknowledgement) = if let Some((sender, contract_addr, msg)) = contract_exec {
             let contract_result = router.execute(
                 api,
@@ -390,25 +396,56 @@ impl Module for BankKeeper {
 
     fn ibc_packet_acknowledge<ExecC, QueryC>(
         &self,
-        _api: &dyn Api,
-        _storage: &mut dyn Storage,
-        _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
-        _block: &BlockInfo,
-        _request: IbcPacketAckMsg,
-    ) -> AnyResult<AppIbcBasicResponse> {
-        // Acknowledgment can't fail, so no need for ack response parsing
-        Ok(AppIbcBasicResponse::default())
+        api: &dyn Api,
+        storage: &mut dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        block: &BlockInfo,
+        request: IbcPacketAckMsg,
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
+        let packet: Ics20Packet = from_json(request.original_packet.data)?;
+
+        // We make sure that we send the ibc hooks callback to the corresponding contract
+        let mut events = vec![];
+        if let Ok(Some(callback_contract)) = parse_ibc_hooks_callback_memo(api, &packet) {
+            let parsed_ack: StdAck = from_json(&request.acknowledgement.data)?;
+            let contract_result = router.sudo(
+                api,
+                storage,
+                block,
+                SudoMsg::Wasm(WasmSudo::new(
+                    &callback_contract,
+                    &IbcHooksCallbackSudoMsg::IBCLifecycleComplete(IBCLifecycleComplete::IBCAck {
+                        ack: request.acknowledgement.data.to_string(),
+                        channel: request.original_packet.src.channel_id,
+                        sequence: request.original_packet.sequence,
+                        success: parsed_ack == StdAck::success(SUCCESS_BANK_ACK),
+                    }),
+                )?),
+            )?;
+
+            events.extend(contract_result.events);
+        }
+
+        Ok(AppIbcBasicResponse { events })
     }
 
     fn ibc_packet_timeout<ExecC, QueryC>(
         &self,
         api: &dyn Api,
         storage: &mut dyn Storage,
-        _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
-        _block: &BlockInfo,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        block: &BlockInfo,
         request: cosmwasm_std::IbcPacketTimeoutMsg,
-    ) -> AnyResult<AppIbcBasicResponse> {
-        // On timeout, we unpack the amount and sent that back to the receiverwe give the funds back to the sender of the packet
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
+        // On timeout, we unpack the amount and sent that back to the receiver we give the funds back to the sender of the packet
 
         // When receiving a packet, one simply needs to unpack the amount and send that to the the receiver
         let packet: Ics20Packet = from_json(request.packet.data)?;
@@ -431,13 +468,34 @@ impl Module for BankKeeper {
                 &mut bank_storage,
                 Addr::unchecked(IBC_LOCK_MODULE_ADDRESS),
                 api.addr_validate(&packet.sender)?,
-                coins(packet.amount.u128(), packet.denom),
+                coins(packet.amount.u128(), packet.denom.clone()),
             )?;
         } else {
             bail!("Funds refund after a timeout, can't timeout a transfer that was not initiated")
         }
 
-        Ok(AppIbcBasicResponse::default())
+        // We make sure that we send the ibc hooks callback to the corresponding contract
+        let mut events = vec![];
+        if let Ok(Some(callback_contract)) = parse_ibc_hooks_callback_memo(api, &packet) {
+            let contract_result = router.sudo(
+                api,
+                storage,
+                block,
+                SudoMsg::Wasm(WasmSudo::new(
+                    &callback_contract,
+                    &IbcHooksCallbackSudoMsg::IBCLifecycleComplete(
+                        IBCLifecycleComplete::IBCTimeout {
+                            channel: request.packet.src.channel_id,
+                            sequence: request.packet.sequence,
+                        },
+                    ),
+                )?),
+            )?;
+
+            events.extend(contract_result.events);
+        }
+
+        Ok(AppIbcBasicResponse { events })
     }
 }
 

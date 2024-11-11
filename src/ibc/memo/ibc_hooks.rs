@@ -11,6 +11,11 @@ pub struct IbcHooksMemo {
 }
 
 #[cw_serde]
+pub struct IbcHooksCallbackMemo {
+    ibc_callback: String,
+}
+
+#[cw_serde]
 pub struct IbcHooksMemoWasm {
     contract: String,
     msg: Value,
@@ -40,4 +45,51 @@ pub fn parse_ibc_hooks_memo(
     }
 
     Ok(None)
+}
+
+pub fn parse_ibc_hooks_callback_memo(
+    api: &dyn Api,
+    packet: &Ics20Packet,
+) -> anyhow::Result<Option<Addr>> {
+    if let Some(memo) = &packet.memo {
+        // We match the memo to the IBC hooks format
+        // If it matches, we create the ibc hook sender. They will be the recipient of the funds and the sender of the contract call
+        if let Ok(json) = serde_json::from_str::<IbcHooksCallbackMemo>(memo) {
+            return api
+                .addr_validate(&json.ibc_callback)
+                .map_err(Into::into)
+                .map(Some);
+        }
+    }
+
+    Ok(None)
+}
+
+#[cw_serde]
+pub enum IBCLifecycleComplete {
+    #[serde(rename = "ibc_ack")]
+    IBCAck {
+        /// The source channel (osmosis side) of the IBC packet
+        channel: String,
+        /// The sequence number that the packet was sent with
+        sequence: u64,
+        /// String encoded version of the `Ack` as seen by OnAcknowledgementPacket(..)
+        ack: String,
+        /// Weather an `Ack` is a success of failure according to the transfer spec
+        success: bool,
+    },
+    #[serde(rename = "ibc_timeout")]
+    IBCTimeout {
+        /// The source channel (osmosis side) of the IBC packet
+        channel: String,
+        /// The sequence number that the packet was sent with
+        sequence: u64,
+    },
+}
+
+/// Message type for `sudo` entry_point
+#[cw_serde]
+pub enum IbcHooksCallbackSudoMsg {
+    #[serde(rename = "ibc_lifecycle_complete")]
+    IBCLifecycleComplete(IBCLifecycleComplete),
 }

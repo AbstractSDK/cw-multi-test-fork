@@ -11,7 +11,7 @@ use cw_multi_test::{
         },
         IbcSimpleModule,
     },
-    AppBuilder, Executor,
+    AppBuilder, Executor, SUCCESS_BANK_ACK,
 };
 
 /// In this module, we are testing the bank module ibc capabilities
@@ -76,7 +76,7 @@ fn simple_transfer() -> anyhow::Result<()> {
     let result = relay_packets_in_tx(&mut app1, &mut app2, send_response)?;
     let ics20_ack = result.iter().any(|packet| {
         if let RelayingResult::Acknowledgement { ack, .. } = &packet.result {
-            ack.eq(&StdAck::success(b"\x01").to_binary())
+            ack.eq(&StdAck::success(SUCCESS_BANK_ACK).to_binary())
         } else {
             false
         }
