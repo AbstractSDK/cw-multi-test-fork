@@ -1,11 +1,12 @@
 use crate::app::CosmosRouter;
 use crate::error::{bail, AnyResult};
 use crate::executor::AppResponse;
-use crate::ibc::types::{AppIbcBasicResponse, AppIbcReceiveResponse, IbcHookAcknowledgement};
+use crate::ibc::types::{
+    keccak256, AppIbcBasicResponse, AppIbcReceiveResponse, IbcHookAcknowledgement,
+};
 use crate::module::Module;
 use crate::prefixed_storage::{prefixed, prefixed_read};
 use crate::{App, Distribution, Gov, Ibc, Staking, Stargate, Wasm};
-use anyhow::anyhow;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     coin, to_json_binary, wasm_execute, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg,
@@ -21,11 +22,10 @@ use cw_utils::NativeBalance;
 use itertools::Itertools;
 use schemars::JsonSchema;
 
+use crate::ibc::memo::ibc_hooks::parse_ibc_hooks_memo;
 use cosmwasm_std::{coins, from_json, IbcPacketAckMsg, IbcPacketReceiveMsg};
 use cw20_ics20::ibc::Ics20Packet;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
-use tiny_keccak::{Hasher, Keccak};
 
 /// Collection of bank balances.
 const BALANCES: Map<&Addr, NativeBalance> = Map::new("balances");
@@ -328,31 +328,7 @@ impl Module for BankKeeper {
             self.get_balance(&bank_storage, &Addr::unchecked(IBC_LOCK_MODULE_ADDRESS))?;
         let locked_amount = balances.iter().find(|b| b.denom == packet.denom);
 
-        let contract_exec = if let Some(memo) = packet.memo {
-            // We match the memo to the IBC hooks format
-            // If it matches, we create the ibc hook sender. They will be the recipient of the funds and the sender of the contract call
-            let json: Value = serde_json::from_str(&memo)?;
-            if let Some(wasm) = json.get("wasm") {
-                let contract = wasm["contract"]
-                    .as_str()
-                    .ok_or(anyhow!("Expected contract string"))?
-                    .to_string();
-                let msg = wasm["msg"].clone();
-
-                let sender_original_sender_string =
-                    format!("{}/{}", request.packet.src.channel_id, packet.sender);
-
-                let bytes: Vec<u8> = keccak256("ibc-wasm-hook-intermediary".as_bytes()).into();
-                let step = [bytes, sender_original_sender_string.as_bytes().to_vec()].concat();
-                let sender = api.addr_humanize(&keccak256(&step).into())?;
-                packet.receiver = sender.to_string();
-                Some((sender, contract, msg))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let contract_exec = parse_ibc_hooks_memo(api, request.packet.src.channel_id, &mut packet)?;
 
         let funds = if let Some(locked_amount) = locked_amount {
             assert!(
@@ -503,16 +479,6 @@ pub fn optional_unwrap_ibc_denom(
     } else {
         denom
     }
-}
-
-fn keccak256(bytes: &[u8]) -> [u8; 32] {
-    let mut output = [0u8; 32];
-
-    let mut hasher = Keccak::v256();
-    hasher.update(bytes);
-    hasher.finalize(&mut output);
-
-    output
 }
 
 impl<ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>

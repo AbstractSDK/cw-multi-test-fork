@@ -5,6 +5,7 @@ use cosmwasm_std::{
     IbcQuery, IbcTimeout,
 };
 use std::{fmt::Display, str::FromStr};
+use tiny_keccak::{Hasher, Keccak};
 
 use crate::app::IbcModule;
 
@@ -239,4 +240,14 @@ impl From<IbcQuery> for MockIbcQuery {
 pub struct IbcHookAcknowledgement {
     pub contract_result: Option<Binary>,
     pub ibc_ack: Option<Binary>,
+}
+
+pub fn keccak256(bytes: &[u8]) -> [u8; 32] {
+    let mut output = [0u8; 32];
+
+    let mut hasher = Keccak::v256();
+    hasher.update(bytes);
+    hasher.finalize(&mut output);
+
+    output
 }
