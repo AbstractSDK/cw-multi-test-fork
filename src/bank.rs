@@ -1,4 +1,4 @@
-use crate::ibc::memo::ibc_hooks::IBCLifecycleComplete;
+use crate::ibc::memo::ibc_hooks::{IBCLifecycleComplete, IbcHooksAck};
 use crate::{
     app::CosmosRouter,
     error::{bail, AnyResult},
@@ -411,7 +411,8 @@ impl Module for BankKeeper {
         // We make sure that we send the ibc hooks callback to the corresponding contract
         let mut events = vec![];
         if let Ok(Some(callback_contract)) = parse_ibc_hooks_callback_memo(api, &packet) {
-            let parsed_ack: StdAck = from_json(&request.acknowledgement.data)?;
+            let parsed_ack: IbcHooksAck = from_json(&request.acknowledgement.data)?;
+            let parsed_ics20_ack: StdAck = from_json(&parsed_ack.ibc_ack)?;
             let contract_result = router.sudo(
                 api,
                 storage,
@@ -422,7 +423,7 @@ impl Module for BankKeeper {
                         ack: request.acknowledgement.data.to_string(),
                         channel: request.original_packet.src.channel_id,
                         sequence: request.original_packet.sequence,
-                        success: parsed_ack == StdAck::success(SUCCESS_BANK_ACK),
+                        success: parsed_ics20_ack == StdAck::success(SUCCESS_BANK_ACK),
                     }),
                 )?),
             )?;

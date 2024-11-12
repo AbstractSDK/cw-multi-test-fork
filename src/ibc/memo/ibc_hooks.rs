@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Api};
+use cosmwasm_std::{Addr, Api, Binary};
 use cw20_ics20::ibc::Ics20Packet;
 use serde_json::Value;
 
@@ -51,6 +51,7 @@ pub fn parse_ibc_hooks_callback_memo(
     api: &dyn Api,
     packet: &Ics20Packet,
 ) -> anyhow::Result<Option<Addr>> {
+    println!("{:?}", packet.memo);
     if let Some(memo) = &packet.memo {
         // We match the memo to the IBC hooks format
         // If it matches, we create the ibc hook sender. They will be the recipient of the funds and the sender of the contract call
@@ -63,6 +64,13 @@ pub fn parse_ibc_hooks_callback_memo(
     }
 
     Ok(None)
+}
+
+/// This is the ibc hooks ack that is used instead of the StdAck.
+#[cw_serde]
+pub struct IbcHooksAck {
+    pub contract_result: Option<Binary>,
+    pub ibc_ack: Binary,
 }
 
 #[cw_serde]
