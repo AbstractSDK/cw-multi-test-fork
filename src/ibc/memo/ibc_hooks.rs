@@ -51,7 +51,6 @@ pub fn parse_ibc_hooks_callback_memo(
     api: &dyn Api,
     packet: &Ics20Packet,
 ) -> anyhow::Result<Option<Addr>> {
-    println!("{:?}", packet.memo);
     if let Some(memo) = &packet.memo {
         // We match the memo to the IBC hooks format
         // If it matches, we create the ibc hook sender. They will be the recipient of the funds and the sender of the contract call
