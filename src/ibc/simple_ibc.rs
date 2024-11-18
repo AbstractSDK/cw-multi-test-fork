@@ -1,10 +1,10 @@
 use anyhow::{anyhow, bail};
 use cosmwasm_std::{
     ensure_eq, to_json_binary, Addr, BankMsg, Binary, ChannelResponse, Coin, CustomMsg, Event,
-    IbcAcknowledgement, IbcChannel, IbcChannelCloseMsg, IbcChannelConnectMsg, IbcChannelOpenMsg,
-    IbcEndpoint, IbcMsg, IbcOrder, IbcPacket, IbcPacketAckMsg, IbcPacketReceiveMsg,
-    IbcPacketTimeoutMsg, IbcQuery, IbcTimeout, IbcTimeoutBlock, ListChannelsResponse, Order,
-    Storage,
+    IbcAckCallbackMsg, IbcAcknowledgement, IbcChannel, IbcChannelCloseMsg, IbcChannelConnectMsg,
+    IbcChannelOpenMsg, IbcEndpoint, IbcMsg, IbcOrder, IbcPacket, IbcPacketAckMsg,
+    IbcPacketReceiveMsg, IbcPacketTimeoutMsg, IbcQuery, IbcTimeout, IbcTimeoutBlock,
+    ListChannelsResponse, Order, Storage,
 };
 use cw20_ics20::ibc::Ics20Packet;
 
@@ -27,6 +27,7 @@ use super::{
         RECEIVE_PACKET_EVENT, SEND_PACKET_EVENT, TIMEOUT_PACKET_EVENT,
         TIMEOUT_RECEIVE_PACKET_EVENT, WRITE_ACK_EVENT,
     },
+    memo::callback::parse_ics20_memo_callback,
     state::{
         ibc_connections, load_port_info, CHANNEL_HANDSHAKE_INFO, CHANNEL_INFO, NAMESPACE_IBC,
         PORT_INFO, RECEIVE_ACK_PACKET_MAP, RECEIVE_PACKET_MAP, SEND_ACK_PACKET_MAP,
@@ -435,14 +436,14 @@ impl IbcSimpleModule {
         Ok(AppResponse { data: None, events })
     }
 
-    fn send_packet(
+    fn _send_packet(
         &self,
         storage: &mut dyn Storage,
         port_id: String,
         channel_id: String,
         data: Binary,
         timeout: IbcTimeout,
-    ) -> AnyResult<crate::AppResponse> {
+    ) -> AnyResult<(u64, crate::AppResponse)> {
         let mut ibc_storage = prefixed(storage, NAMESPACE_IBC);
 
         // On this storage, we need to get the id of the transfer packet
@@ -509,7 +510,20 @@ impl IbcSimpleModule {
             .add_attribute("packet_connection", channel_info.info.connection_id);
 
         let events = vec![send_event];
-        Ok(AppResponse { data: None, events })
+        Ok((packet.sequence, AppResponse { data: None, events }))
+    }
+
+    fn send_packet(
+        &self,
+        storage: &mut dyn Storage,
+        port_id: String,
+        channel_id: String,
+        data: Binary,
+        timeout: IbcTimeout,
+    ) -> AnyResult<crate::AppResponse> {
+        let (_sequence, response) =
+            self._send_packet(storage, port_id, channel_id, data, timeout)?;
+        Ok(response)
     }
 
     fn receive_packet<ExecC, QueryC>(
@@ -803,10 +817,11 @@ impl IbcSimpleModule {
             ),
             &acknowledgement,
         )?;
+        let original_packet = packet.clone();
 
         let ack_message = IbcPacketAckMsg::new(
-            acknowledgement,
-            packet.clone(),
+            acknowledgement.clone(),
+            original_packet.clone(),
             Addr::unchecked(RELAYER_ADDR),
         );
 
@@ -817,8 +832,8 @@ impl IbcSimpleModule {
                 write_cache,
                 block,
                 IbcRouterMsg {
-                    module: port.into(),
-                    msg: super::IbcModuleMsg::PacketAcknowledgement(ack_message),
+                    module: port.clone().into(),
+                    msg: super::IbcModuleMsg::PacketAcknowledgement(ack_message.clone()),
                 },
             )
         })?;
@@ -854,6 +869,33 @@ impl IbcSimpleModule {
             .add_attribute("packet_connection", channel_info.info.connection_id);
 
         events.push(ack_event);
+
+        // Finally, we check that the packet has a callback associated.
+        if parse_ics20_memo_callback(&packet.data).is_ok() {
+            // If it does, we execute the callback and push the events
+            // Finally we execute the Packet Callback, without failing on error
+            let callback_res: Result<IbcResponse, anyhow::Error> =
+                transactional(storage, |write_cache, _| {
+                    router.ibc_source_callback(
+                        api,
+                        write_cache,
+                        block,
+                        cosmwasm_std::IbcSourceCallbackMsg::Acknowledgement(
+                            IbcAckCallbackMsg::new(
+                                acknowledgement,
+                                original_packet,
+                                Addr::unchecked(RELAYER_ADDR),
+                            ),
+                        ),
+                    )
+                });
+            let callback_events = match callback_res {
+                // Only type allowed as an ack response
+                Ok(IbcResponse::Basic(r)) => r.events,
+                _ => vec![],
+            };
+            events.extend(callback_events);
+        }
 
         Ok(AppResponse { data: None, events })
     }
@@ -989,6 +1031,7 @@ impl IbcSimpleModule {
         to_address: String,
         amount: Coin,
         timeout: IbcTimeout,
+        memo: Option<String>,
     ) -> AnyResult<crate::AppResponse>
     where
         ExecC: CustomMsg,
@@ -1004,7 +1047,7 @@ impl IbcSimpleModule {
         router.execute(api, storage, block, sender.clone(), msg)?;
 
         // We unwrap the denom if the funds were received on this specific channel
-        let denom = optional_unwrap_ibc_denom(amount.denom, channel_id.clone());
+        let denom = optional_unwrap_ibc_denom(storage, amount.denom, channel_id.clone());
 
         // 2. Send an ICS20 Packet to the remote chain
         let packet_formed = Ics20Packet {
@@ -1012,17 +1055,34 @@ impl IbcSimpleModule {
             denom,
             receiver: to_address,
             sender: sender.to_string(),
-            memo: None,
+            memo,
         };
 
-        self.send_packet(
+        let (sequence, mut app_response) = self._send_packet(
             storage,
             "transfer".to_string(),
             channel_id,
             to_json_binary(&packet_formed)?,
             timeout,
-        )
+        )?;
+        app_response.data = Some(ics20_transfer_response(sequence));
+        Ok(app_response)
     }
+}
+
+use prost::Message;
+#[derive(Clone, PartialEq, Message)]
+struct MsgTransferResponse {
+    #[prost(uint64, tag = "1")]
+    pub sequence: u64,
+}
+
+// empty return if no data present in original
+fn ics20_transfer_response(sequence: u64) -> Binary {
+    let response_data = MsgTransferResponse { sequence };
+    let mut new_data = Vec::<u8>::with_capacity(response_data.encoded_len());
+    response_data.encode(&mut new_data).unwrap();
+    new_data.into()
 }
 
 impl Module for IbcSimpleModule {
@@ -1049,10 +1109,9 @@ impl Module for IbcSimpleModule {
                 to_address,
                 amount,
                 timeout,
-                // We could add IBC-hooks capabilities here
-                memo: _,
+                memo,
             } => self.transfer(
-                api, storage, router, block, sender, channel_id, to_address, amount, timeout,
+                api, storage, router, block, sender, channel_id, to_address, amount, timeout, memo,
             ),
             IbcMsg::SendPacket {
                 channel_id,

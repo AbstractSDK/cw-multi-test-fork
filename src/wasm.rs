@@ -10,9 +10,9 @@ use crate::transactions::transactional;
 use cosmwasm_std::testing::mock_wasmd_attr;
 use cosmwasm_std::{
     to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Checksum, Coin, ContractInfo,
-    ContractInfoResponse, CustomMsg, CustomQuery, Deps, DepsMut, Env, Event, MessageInfo, Order,
-    Querier, QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult, Storage, SubMsg,
-    SubMsgResponse, SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
+    ContractInfoResponse, CustomMsg, CustomQuery, Deps, DepsMut, Env, Event, IbcSourceCallbackMsg,
+    MessageInfo, Order, Querier, QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult,
+    Storage, SubMsg, SubMsgResponse, SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
 };
 use cosmwasm_std::{
     IbcBasicResponse, IbcChannelCloseMsg, IbcChannelConnectMsg, IbcChannelOpenMsg,
@@ -246,6 +246,19 @@ pub trait Wasm<ExecC, QueryC> {
         _request: IbcPacketTimeoutMsg,
     ) -> AnyResult<AppIbcBasicResponse> {
         panic!("No ibc packet timeout implemented");
+    }
+
+    /// Executes the contract ibc_source_callback endpoint
+    fn ibc_source_callback(
+        &self,
+        _api: &dyn Api,
+        _contract_addr: Addr,
+        _storage: &mut dyn Storage,
+        _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        _block: &BlockInfo,
+        _request: IbcSourceCallbackMsg,
+    ) -> AnyResult<AppIbcBasicResponse> {
+        panic!("No ibc source callback implemented");
     }
 }
 
@@ -484,6 +497,28 @@ where
             block,
             contract_addr.clone(),
             |contract, deps, env| contract.ibc_packet_timeout(deps, env, request),
+        )?)?;
+
+        self.process_ibc_response(api, contract_addr, storage, router, block, res)
+    }
+
+    /// Executes the contract ibc_source_callback endpoint
+    fn ibc_source_callback(
+        &self,
+        api: &dyn Api,
+        contract_addr: Addr,
+        storage: &mut dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        block: &BlockInfo,
+        request: IbcSourceCallbackMsg,
+    ) -> AnyResult<AppIbcBasicResponse> {
+        let res = Self::verify_ibc_response(self.with_storage(
+            api,
+            storage,
+            router,
+            block,
+            contract_addr.clone(),
+            |contract, deps, env| contract.ibc_source_callback(deps, env, request),
         )?)?;
 
         self.process_ibc_response(api, contract_addr, storage, router, block, res)

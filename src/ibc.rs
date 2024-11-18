@@ -8,6 +8,7 @@ use cosmwasm_std::{
 use crate::{AcceptingModule, FailingModule, Module};
 
 pub mod events;
+pub mod memo;
 pub mod relayer;
 mod simple_ibc;
 mod state;

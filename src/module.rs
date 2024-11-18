@@ -77,7 +77,11 @@ pub trait Module {
         _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         _block: &BlockInfo,
         _request: IbcChannelOpenMsg,
-    ) -> AnyResult<IbcChannelOpenResponse> {
+    ) -> AnyResult<IbcChannelOpenResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
         Ok(IbcChannelOpenResponse::None)
     }
 
@@ -89,7 +93,11 @@ pub trait Module {
         _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         _block: &BlockInfo,
         _request: IbcChannelConnectMsg,
-    ) -> AnyResult<AppIbcBasicResponse> {
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
         Ok(AppIbcBasicResponse::default())
     }
 
@@ -101,7 +109,11 @@ pub trait Module {
         _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         _block: &BlockInfo,
         _request: IbcChannelCloseMsg,
-    ) -> AnyResult<AppIbcBasicResponse> {
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
         Ok(AppIbcBasicResponse::default())
     }
 
@@ -113,7 +125,11 @@ pub trait Module {
         _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         _block: &BlockInfo,
         _request: IbcPacketReceiveMsg,
-    ) -> AnyResult<AppIbcReceiveResponse> {
+    ) -> AnyResult<AppIbcReceiveResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
         panic!("No ibc packet receive implemented");
     }
 
@@ -125,7 +141,11 @@ pub trait Module {
         _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         _block: &BlockInfo,
         _request: IbcPacketAckMsg,
-    ) -> AnyResult<AppIbcBasicResponse> {
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
         panic!("No ibc packet acknowledgement implemented");
     }
 
@@ -137,7 +157,11 @@ pub trait Module {
         _router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
         _block: &BlockInfo,
         _request: IbcPacketTimeoutMsg,
-    ) -> AnyResult<AppIbcBasicResponse> {
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
         panic!("No ibc packet timeout implemented");
     }
 }
