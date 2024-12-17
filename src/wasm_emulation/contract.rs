@@ -4,10 +4,10 @@ use crate::wasm_emulation::instance::instance_from_reused_module;
 use crate::wasm_emulation::output::StorageChanges;
 use crate::wasm_emulation::query::MockQuerier;
 use crate::wasm_emulation::storage::DualStorage;
-use cosmwasm_std::Addr;
 use cosmwasm_std::Checksum;
 use cosmwasm_std::CustomMsg;
 use cosmwasm_std::StdError;
+use cosmwasm_vm::WasmLimits;
 use cosmwasm_vm::{
     call_execute, call_instantiate, call_migrate, call_query, call_reply, call_sudo, Backend,
     BackendApi, Instance, InstanceOptions, Querier,
@@ -99,6 +99,8 @@ impl WasmContract {
                 "staking".to_string(),
                 "stargate".to_string(),
             ]),
+            &WasmLimits::default(),
+            cosmwasm_vm::internals::Logger::Off,
         )
         .unwrap();
         Self::Local(LocalWasmContract {
