@@ -525,8 +525,10 @@ mod wasm_caching {
                 }
             }
             // Error on checking cache dir, try to create it
-            Err(_) => fs::create_dir(&wasm_cache_dir)
-                .context("Wasm cache directory cannot be created, please check permissions")?,
+            Err(_) => {
+                // We try to create the dir silently, it's ok if it fails, the error will pop-up later if there's an issue
+                let _ = fs::create_dir(&wasm_cache_dir);
+            }
         }
 
         let cached_wasm_file = wasm_cache_dir.join(key);
