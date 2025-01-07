@@ -22,17 +22,20 @@ const TOKENFACTORY_DENOMS: Map<(&String, &String), ()> = Map::new("tokenfactory_
 
 /// Merge sender and subdenom to create the denom
 pub fn denom(sender: &str, subdenom: &str) -> String {
-    format!("{sender}/{subdenom}")
+    format!("factory/{sender}/{subdenom}")
 }
 
 fn split_denom(denom: &str) -> AnyResult<(String, String)> {
-    let split_result: Vec<&str> = denom.splitn(2, "/").collect();
+    let split_result: Vec<&str> = denom.splitn(3, "/").collect();
 
-    if split_result.len() != 2 {
-        bail!("Error decoding denom {denom} into sender/subdenom")
+    if split_result.len() != 3 {
+        bail!("Error decoding denom {denom} into factory/sender/subdenom")
+    }
+    if split_result[0] != "factory" {
+        bail!("Error decoding denom {denom} into factory/sender/subdenom")
     }
 
-    Ok((split_result[0].to_string(), split_result[1].to_string()))
+    Ok((split_result[1].to_string(), split_result[2].to_string()))
 }
 
 impl Stargate for TokenFactoryStargate {
