@@ -107,7 +107,7 @@ impl Stargate for TokenFactoryStargate {
         _path: String,
         _data: Binary,
     ) -> AnyResult<Binary> {
-        to_json_binary(&Empty {}).map_err(Into::into)
+        bail!("Stargate / any queries, unsupported")
     }
 
     fn execute_any<ExecC, QueryC>(
@@ -151,7 +151,15 @@ impl TokenFactoryStargate {
 
         TOKENFACTORY_DENOMS.save(storage, (&sender, &subdenom), &())?;
 
-        Ok(AppResponse::default())
+        let data = osmosis::MsgCreateDenomResponse {
+            new_token_denom: denom(&sender, &subdenom),
+        }
+        .to_proto_bytes();
+
+        Ok(AppResponse {
+            data: Some(data.into()),
+            events: vec![],
+        })
     }
     fn mint<ExecC, QueryC>(
         &self,
@@ -193,7 +201,12 @@ impl TokenFactoryStargate {
             }),
         )?;
 
-        Ok(AppResponse::default())
+        let data = osmosis::MsgMintResponse {}.to_proto_bytes();
+
+        Ok(AppResponse {
+            data: Some(data.into()),
+            events: vec![],
+        })
     }
 
     fn burn<ExecC, QueryC>(
@@ -234,7 +247,11 @@ impl TokenFactoryStargate {
                 amount: vec![amount.try_into()?],
             }),
         )?;
+        let data = osmosis::MsgBurnResponse {}.to_proto_bytes();
 
-        Ok(AppResponse::default())
+        Ok(AppResponse {
+            data: Some(data.into()),
+            events: vec![],
+        })
     }
 }
