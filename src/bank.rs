@@ -1,20 +1,35 @@
-use crate::app::CosmosRouter;
-use crate::error::{bail, AnyResult};
-use crate::executor::AppResponse;
-use crate::module::Module;
-use crate::prefixed_storage::{prefixed, prefixed_read};
-use cosmwasm_std::{
-    coin, to_json_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery,
-    Binary, BlockInfo, Coin, DenomMetadata, Event, Querier, Storage,
+use crate::ibc::memo::ibc_hooks::{IBCLifecycleComplete, IbcHooksAck};
+use crate::{
+    app::CosmosRouter,
+    error::{bail, AnyResult},
+    executor::AppResponse,
+    ibc::{
+        memo::ibc_hooks::{
+            parse_ibc_hooks_callback_memo, parse_ibc_hooks_memo, IbcHooksCallbackSudoMsg,
+        },
+        types::{keccak256, AppIbcBasicResponse, AppIbcReceiveResponse, IbcHookAcknowledgement},
+    },
+    module::Module,
+    prefixed_storage::{prefixed, prefixed_read},
+    App, Distribution, Gov, Ibc, Staking, Stargate, SudoMsg, Wasm, WasmSudo,
 };
+use cosmwasm_schema::cw_serde;
+use cosmwasm_std::{
+    coin, to_json_binary, wasm_execute, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg,
+    BankQuery, Binary, BlockInfo, Coin, CustomMsg, CustomQuery, DenomMetadata, Event, Querier,
+    StdAck, Storage,
+};
+use cosmwasm_std::{coins, from_json, IbcPacketAckMsg, IbcPacketReceiveMsg};
 #[cfg(feature = "cosmwasm_1_3")]
 use cosmwasm_std::{AllDenomMetadataResponse, DenomMetadataResponse};
 #[cfg(feature = "cosmwasm_1_1")]
 use cosmwasm_std::{Order, StdResult, SupplyResponse, Uint128};
+use cw20_ics20::ibc::Ics20Packet;
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
 use itertools::Itertools;
 use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 
 /// Collection of bank balances.
 const BALANCES: Map<&Addr, NativeBalance> = Map::new("balances");
@@ -24,6 +39,18 @@ const DENOM_METADATA: Map<String, DenomMetadata> = Map::new("metadata");
 
 /// Default storage namespace for bank module.
 const NAMESPACE_BANK: &[u8] = b"bank";
+/// Default address for the locked IBC funds.
+pub const IBC_LOCK_MODULE_ADDRESS: &str = "ibc_bank_lock_module";
+/// Acknowledgement corresponding to a successful transfer
+pub const SUCCESS_BANK_ACK: &[u8] = b"\x01";
+
+#[cw_serde]
+pub struct IbcDenom {
+    pub channel_id: String,
+    pub original_denom: String,
+}
+/// Collection of IBC tokens for decrypting
+const IBC_DENOMS: Map<&str, IbcDenom> = Map::new("ibc_denoms");
 
 /// A message representing privileged actions in bank module.
 #[derive(Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -230,6 +257,7 @@ impl Module for BankKeeper {
                 let res = AllBalanceResponse::new(amount);
                 to_json_binary(&res).map_err(Into::into)
             }
+
             BankQuery::Balance { address, denom } => {
                 let address = api.addr_validate(&address)?;
                 let all_amounts = self.get_balance(&bank_storage, &address)?;
@@ -281,6 +309,260 @@ impl Module for BankKeeper {
                 Ok(AppResponse::default())
             }
         }
+    }
+
+    fn ibc_packet_receive<ExecC, QueryC>(
+        &self,
+        api: &dyn Api,
+        storage: &mut dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        block: &BlockInfo,
+        request: IbcPacketReceiveMsg,
+    ) -> AnyResult<AppIbcReceiveResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
+        // When receiving a packet, one simply needs to unpack the amount and send that to the the receiver
+        let mut packet: Ics20Packet = from_json(&request.packet.data)?;
+
+        let mut bank_storage = prefixed(storage, NAMESPACE_BANK);
+
+        // If the denom is exactly a denom that was sent through this channel, we can mint it directly without denom changes
+        // This can be verified by checking the ibc_module mock balance
+        let balances =
+            self.get_balance(&bank_storage, &Addr::unchecked(IBC_LOCK_MODULE_ADDRESS))?;
+        let locked_amount = balances.iter().find(|b| b.denom == packet.denom);
+
+        let contract_exec = parse_ibc_hooks_memo(api, request.packet.src.channel_id, &mut packet)?;
+
+        let funds = if let Some(locked_amount) = locked_amount {
+            assert!(
+                locked_amount.amount >= packet.amount,
+                "The ibc locked amount is lower than the packet amount"
+            );
+            // We send tokens from the IBC_LOCK_MODULE
+            let funds = coins(packet.amount.u128(), packet.denom);
+
+            self.send(
+                &mut bank_storage,
+                Addr::unchecked(IBC_LOCK_MODULE_ADDRESS),
+                api.addr_validate(&packet.receiver)?,
+                funds.clone(),
+            )?;
+            funds
+        } else {
+            // Else, we receive the denom with prefixes
+            let funds = coins(
+                packet.amount.u128(),
+                wrap_ibc_denom(storage, request.packet.dest.channel_id, packet.denom)?,
+            );
+            let mut bank_storage = prefixed(storage, NAMESPACE_BANK);
+
+            self.mint(
+                &mut bank_storage,
+                api.addr_validate(&packet.receiver)?,
+                funds.clone(),
+            )?;
+            funds
+        };
+
+        let ics20_ack = StdAck::success(SUCCESS_BANK_ACK).to_binary();
+        let (events, acknowledgement) = if let Some((sender, contract_addr, msg)) = contract_exec {
+            let contract_result = router.execute(
+                api,
+                storage,
+                block,
+                sender,
+                wasm_execute(contract_addr, &msg, funds)?.into(),
+            )?;
+
+            let ack = IbcHookAcknowledgement {
+                contract_result: contract_result.data,
+                ibc_ack: Some(ics20_ack),
+            };
+
+            (contract_result.events, Some(to_json_binary(&ack)?))
+        } else {
+            (vec![], Some(ics20_ack))
+        };
+
+        Ok(AppIbcReceiveResponse {
+            events,
+            // Default acknowledgment (defined here https://github.com/cosmos/ibc/blob/main/spec/app/ics-020-fungible-token-transfer/README.md#data-structures)
+            acknowledgement,
+        })
+    }
+
+    fn ibc_packet_acknowledge<ExecC, QueryC>(
+        &self,
+        api: &dyn Api,
+        storage: &mut dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        block: &BlockInfo,
+        request: IbcPacketAckMsg,
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
+        let packet: Ics20Packet = from_json(request.original_packet.data)?;
+
+        // We make sure that we send the ibc hooks callback to the corresponding contract
+        let mut events = vec![];
+        if let Ok(Some(callback_contract)) = parse_ibc_hooks_callback_memo(api, &packet) {
+            let parsed_ack: IbcHooksAck = from_json(&request.acknowledgement.data)?;
+            let parsed_ics20_ack: StdAck = from_json(&parsed_ack.ibc_ack)?;
+            let contract_result = router.sudo(
+                api,
+                storage,
+                block,
+                SudoMsg::Wasm(WasmSudo::new(
+                    &callback_contract,
+                    &IbcHooksCallbackSudoMsg::IBCLifecycleComplete(IBCLifecycleComplete::IBCAck {
+                        ack: request.acknowledgement.data.to_string(),
+                        channel: request.original_packet.src.channel_id,
+                        sequence: request.original_packet.sequence,
+                        success: parsed_ics20_ack == StdAck::success(SUCCESS_BANK_ACK),
+                    }),
+                )?),
+            )?;
+
+            events.extend(contract_result.events);
+        }
+
+        Ok(AppIbcBasicResponse { events })
+    }
+
+    fn ibc_packet_timeout<ExecC, QueryC>(
+        &self,
+        api: &dyn Api,
+        storage: &mut dyn Storage,
+        router: &dyn CosmosRouter<ExecC = ExecC, QueryC = QueryC>,
+        block: &BlockInfo,
+        request: cosmwasm_std::IbcPacketTimeoutMsg,
+    ) -> AnyResult<AppIbcBasicResponse>
+    where
+        ExecC: CustomMsg + DeserializeOwned + 'static,
+        QueryC: CustomQuery + DeserializeOwned + 'static,
+    {
+        // On timeout, we unpack the amount and sent that back to the receiver we give the funds back to the sender of the packet
+
+        // When receiving a packet, one simply needs to unpack the amount and send that to the the receiver
+        let packet: Ics20Packet = from_json(request.packet.data)?;
+
+        let mut bank_storage = prefixed(storage, NAMESPACE_BANK);
+
+        // We verify the denom is exactly a denom that was sent through this channel
+        // This can be verified by checking the ibc_module mock balance
+        let balances =
+            self.get_balance(&bank_storage, &Addr::unchecked(IBC_LOCK_MODULE_ADDRESS))?;
+        let locked_amount = balances.iter().find(|b| b.denom == packet.denom);
+
+        if let Some(locked_amount) = locked_amount {
+            assert!(
+                locked_amount.amount >= packet.amount,
+                "The ibc locked amount is lower than the packet amount"
+            );
+            // We send tokens from the IBC_LOCK_MODULE
+            self.send(
+                &mut bank_storage,
+                Addr::unchecked(IBC_LOCK_MODULE_ADDRESS),
+                api.addr_validate(&packet.sender)?,
+                coins(packet.amount.u128(), packet.denom.clone()),
+            )?;
+        } else {
+            bail!("Funds refund after a timeout, can't timeout a transfer that was not initiated")
+        }
+
+        // We make sure that we send the ibc hooks callback to the corresponding contract
+        let mut events = vec![];
+        if let Ok(Some(callback_contract)) = parse_ibc_hooks_callback_memo(api, &packet) {
+            let contract_result = router.sudo(
+                api,
+                storage,
+                block,
+                SudoMsg::Wasm(WasmSudo::new(
+                    &callback_contract,
+                    &IbcHooksCallbackSudoMsg::IBCLifecycleComplete(
+                        IBCLifecycleComplete::IBCTimeout {
+                            channel: request.packet.src.channel_id,
+                            sequence: request.packet.sequence,
+                        },
+                    ),
+                )?),
+            )?;
+
+            events.extend(contract_result.events);
+        }
+
+        Ok(AppIbcBasicResponse { events })
+    }
+}
+
+pub fn wrap_ibc_denom(
+    storage: &mut dyn Storage,
+    channel_id: String,
+    denom: String,
+) -> AnyResult<String> {
+    let local_denom = wrap_ibc_denom_query(&channel_id, &denom);
+    IBC_DENOMS.save(
+        storage,
+        &local_denom,
+        &IbcDenom {
+            channel_id,
+            original_denom: denom,
+        },
+    )?;
+    Ok(local_denom)
+}
+
+fn wrap_ibc_denom_query(channel_id: &str, denom: &str) -> String {
+    let denom_path = format!("{channel_id}/{denom}");
+
+    format!("ibc/{}", hex::encode(keccak256(denom_path.as_bytes())))
+}
+
+pub fn optional_unwrap_ibc_denom(
+    storage: &dyn Storage,
+    denom: String,
+    expected_channel_id: String,
+) -> String {
+    // We try to load from state
+    if let Ok(remote_denom) = IBC_DENOMS.load(storage, &denom) {
+        if remote_denom.channel_id != expected_channel_id {
+            denom
+        } else {
+            remote_denom.original_denom
+        }
+    } else {
+        denom
+    }
+}
+
+impl<ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>
+    App<BankKeeper, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>
+where
+    CustomT::ExecT: CustomMsg + DeserializeOwned + 'static,
+    CustomT::QueryT: CustomQuery + DeserializeOwned + 'static,
+    WasmT: Wasm<CustomT::ExecT, CustomT::QueryT>,
+    ApiT: Api,
+    StorageT: Storage,
+    CustomT: Module,
+    StakingT: Staking,
+    DistrT: Distribution,
+    IbcT: Ibc,
+    GovT: Gov,
+    StargateT: Stargate,
+{
+    /// Return the wrapped ibc denom on the chain
+    pub fn wrap_ibc_denom(&self, channel_id: &str, denom: &str) -> String {
+        wrap_ibc_denom_query(channel_id, denom)
+    }
+
+    /// Return the un-wrapper ibc denom on the chain
+    pub fn unwrap_ibc_denom(&self, denom: &str) -> AnyResult<IbcDenom> {
+        IBC_DENOMS.load(&self.storage, denom).map_err(Into::into)
     }
 }
 

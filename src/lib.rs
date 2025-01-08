@@ -136,7 +136,7 @@ pub mod error;
 mod executor;
 mod featured;
 mod gov;
-mod ibc;
+pub mod ibc;
 mod module;
 mod prefixed_storage;
 #[cfg(feature = "staking")]
@@ -161,7 +161,7 @@ pub use crate::app::{
     custom_app, next_block, no_init, App, BasicApp, CosmosRouter, Router, SudoMsg,
 };
 pub use crate::app_builder::{AppBuilder, BasicAppBuilder};
-pub use crate::bank::{Bank, BankKeeper, BankSudo};
+pub use crate::bank::{Bank, BankKeeper, BankSudo, SUCCESS_BANK_ACK};
 pub use crate::checksums::ChecksumGenerator;
 pub use crate::contracts::{Contract, ContractWrapper};
 pub use crate::executor::{AppResponse, Executor};
