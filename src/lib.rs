@@ -147,6 +147,12 @@ mod tests;
 mod transactions;
 mod wasm;
 
+#[cfg(feature = "tokenfactory")]
+/// TokenFactory integration for cw-multi-test
+pub mod tokenfactory;
+#[cfg(feature = "tokenfactory")]
+pub(crate) use tokenfactory::shim;
+
 pub use crate::addresses::{
     AddressGenerator, IntoAddr, IntoBech32, IntoBech32m, SimpleAddressGenerator,
 };
@@ -168,3 +174,6 @@ pub use crate::staking::{
 };
 pub use crate::stargate::{Stargate, StargateAccepting, StargateFailing};
 pub use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
+
+#[cfg(feature = "tokenfactory")]
+pub use tokenfactory::{denom, TokenFactoryStargate};

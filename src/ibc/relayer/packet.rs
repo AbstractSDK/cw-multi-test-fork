@@ -11,7 +11,7 @@ use crate::{
         types::MockIbcQuery,
         IbcPacketRelayingMsg,
     },
-    App, AppResponse, Bank, Distribution, Gov, Ibc, Module, Staking, SudoMsg, Wasm,
+    App, AppResponse, Bank, Distribution, Gov, Ibc, Module, Staking, Stargate, SudoMsg, Wasm,
 };
 
 use super::{get_all_event_attr_value, get_event_attr_value, has_event};
@@ -46,6 +46,7 @@ pub fn relay_packets_in_tx<
     DistrT1,
     IbcT1,
     GovT1,
+    StargateT1,
     BankT2,
     ApiT2,
     StorageT2,
@@ -55,9 +56,32 @@ pub fn relay_packets_in_tx<
     DistrT2,
     IbcT2,
     GovT2,
+    StargateT2,
 >(
-    app1: &mut App<BankT1, ApiT1, StorageT1, CustomT1, WasmT1, StakingT1, DistrT1, IbcT1, GovT1>,
-    app2: &mut App<BankT2, ApiT2, StorageT2, CustomT2, WasmT2, StakingT2, DistrT2, IbcT2, GovT2>,
+    app1: &mut App<
+        BankT1,
+        ApiT1,
+        StorageT1,
+        CustomT1,
+        WasmT1,
+        StakingT1,
+        DistrT1,
+        IbcT1,
+        GovT1,
+        StargateT1,
+    >,
+    app2: &mut App<
+        BankT2,
+        ApiT2,
+        StorageT2,
+        CustomT2,
+        WasmT2,
+        StakingT2,
+        DistrT2,
+        IbcT2,
+        GovT2,
+        StargateT2,
+    >,
     app1_tx_response: AppResponse,
 ) -> AnyResult<Vec<RelayPacketResult>>
 where
@@ -72,6 +96,7 @@ where
     DistrT1: Distribution,
     IbcT1: Ibc,
     GovT1: Gov,
+    StargateT1: Stargate,
 
     CustomT2::ExecT: CustomMsg + DeserializeOwned + 'static,
     CustomT2::QueryT: CustomQuery + DeserializeOwned + 'static,
@@ -84,6 +109,7 @@ where
     DistrT2: Distribution,
     IbcT2: Ibc,
     GovT2: Gov,
+    StargateT2: Stargate,
 {
     // Find all packets and their data
     let packets = get_all_event_attr_value(&app1_tx_response, SEND_PACKET_EVENT, "packet_sequence");
@@ -121,6 +147,7 @@ pub fn relay_packet<
     DistrT1,
     IbcT1,
     GovT1,
+    StargateT1,
     BankT2,
     ApiT2,
     StorageT2,
@@ -130,9 +157,32 @@ pub fn relay_packet<
     DistrT2,
     IbcT2,
     GovT2,
+    StargateT2,
 >(
-    app1: &mut App<BankT1, ApiT1, StorageT1, CustomT1, WasmT1, StakingT1, DistrT1, IbcT1, GovT1>,
-    app2: &mut App<BankT2, ApiT2, StorageT2, CustomT2, WasmT2, StakingT2, DistrT2, IbcT2, GovT2>,
+    app1: &mut App<
+        BankT1,
+        ApiT1,
+        StorageT1,
+        CustomT1,
+        WasmT1,
+        StakingT1,
+        DistrT1,
+        IbcT1,
+        GovT1,
+        StargateT1,
+    >,
+    app2: &mut App<
+        BankT2,
+        ApiT2,
+        StorageT2,
+        CustomT2,
+        WasmT2,
+        StakingT2,
+        DistrT2,
+        IbcT2,
+        GovT2,
+        StargateT2,
+    >,
     src_port_id: String,
     src_channel_id: String,
     sequence: u64,
@@ -149,6 +199,7 @@ where
     DistrT1: Distribution,
     IbcT1: Ibc,
     GovT1: Gov,
+    StargateT1: Stargate,
 
     CustomT2::ExecT: CustomMsg + DeserializeOwned + 'static,
     CustomT2::QueryT: CustomQuery + DeserializeOwned + 'static,
@@ -161,6 +212,7 @@ where
     DistrT2: Distribution,
     IbcT2: Ibc,
     GovT2: Gov,
+    StargateT2: Stargate,
 {
     let packet: IbcPacket = from_json(app1.ibc_query(MockIbcQuery::SendPacket {
         channel_id: src_channel_id.clone(),

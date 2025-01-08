@@ -25,6 +25,13 @@ cosmwasm_1_3 = ["cosmwasm_1_2", "cosmwasm-std/cosmwasm_1_3"]
 cosmwasm_1_4 = ["cosmwasm_1_3", "cosmwasm-std/cosmwasm_1_4"]
 cosmwasm_2_0 = ["cosmwasm_1_4", "cosmwasm-std/cosmwasm_2_0"]
 cosmwasm_2_1 = ["cosmwasm_2_0", "cosmwasm-std/cosmwasm_2_1"]
+tokenfactory = [
+    "dep:osmosis-std-derive",
+    "dep:chrono",
+    "dep:prost-types",
+    "dep:serde-cw-value",
+]
+
 
 [dependencies]
 anyhow = "1.0.89"
@@ -45,6 +52,13 @@ log = "0.4.20"
 cw20-ics20 = "2.0.0"
 hex = "0.4.3"
 tiny-keccak = { version = "2.0.2", features = ["keccak"] }
+
+# For tokenfactory
+osmosis-std-derive = { version = "0.26.0", optional = true }
+prost-types = { version = "0.13.4", optional = true }
+serde-cw-value = { version = "0.7.0", optional = true }
+chrono = { version = "0.4.39", optional = true }
+
 
 [dev-dependencies]
 hex = "0.4.3"

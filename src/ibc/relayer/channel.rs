@@ -7,7 +7,7 @@ use crate::{
         types::{Connection, MockIbcQuery},
         IbcPacketRelayingMsg,
     },
-    App, AppResponse, Bank, Distribution, Gov, Ibc, Module, Staking, Wasm,
+    App, AppResponse, Bank, Distribution, Gov, Ibc, Module, Staking, Stargate, Wasm,
 };
 
 use super::get_event_attr_value;
@@ -32,6 +32,7 @@ pub fn create_connection<
     DistrT1,
     IbcT1,
     GovT1,
+    StargateT1,
     BankT2,
     ApiT2,
     StorageT2,
@@ -41,9 +42,32 @@ pub fn create_connection<
     DistrT2,
     IbcT2,
     GovT2,
+    StargateT2,
 >(
-    src_app: &mut App<BankT1, ApiT1, StorageT1, CustomT1, WasmT1, StakingT1, DistrT1, IbcT1, GovT1>,
-    dst_app: &mut App<BankT2, ApiT2, StorageT2, CustomT2, WasmT2, StakingT2, DistrT2, IbcT2, GovT2>,
+    src_app: &mut App<
+        BankT1,
+        ApiT1,
+        StorageT1,
+        CustomT1,
+        WasmT1,
+        StakingT1,
+        DistrT1,
+        IbcT1,
+        GovT1,
+        StargateT1,
+    >,
+    dst_app: &mut App<
+        BankT2,
+        ApiT2,
+        StorageT2,
+        CustomT2,
+        WasmT2,
+        StakingT2,
+        DistrT2,
+        IbcT2,
+        GovT2,
+        StargateT2,
+    >,
 ) -> AnyResult<(String, String)>
 where
     CustomT1::ExecT: CustomMsg + DeserializeOwned + 'static,
@@ -57,6 +81,7 @@ where
     DistrT1: Distribution,
     IbcT1: Ibc,
     GovT1: Gov,
+    StargateT1: Stargate,
 
     CustomT2::ExecT: CustomMsg + DeserializeOwned + 'static,
     CustomT2::QueryT: CustomQuery + DeserializeOwned + 'static,
@@ -69,6 +94,7 @@ where
     DistrT2: Distribution,
     IbcT2: Ibc,
     GovT2: Gov,
+    StargateT2: Stargate,
 {
     let src_connection_msg = IbcPacketRelayingMsg::CreateConnection {
         remote_chain_id: dst_app.block_info().chain_id,
@@ -107,6 +133,7 @@ pub fn create_channel<
     DistrT1,
     IbcT1,
     GovT1,
+    StargateT1,
     BankT2,
     ApiT2,
     StorageT2,
@@ -116,9 +143,32 @@ pub fn create_channel<
     DistrT2,
     IbcT2,
     GovT2,
+    StargateT2,
 >(
-    src_app: &mut App<BankT1, ApiT1, StorageT1, CustomT1, WasmT1, StakingT1, DistrT1, IbcT1, GovT1>,
-    dst_app: &mut App<BankT2, ApiT2, StorageT2, CustomT2, WasmT2, StakingT2, DistrT2, IbcT2, GovT2>,
+    src_app: &mut App<
+        BankT1,
+        ApiT1,
+        StorageT1,
+        CustomT1,
+        WasmT1,
+        StakingT1,
+        DistrT1,
+        IbcT1,
+        GovT1,
+        StargateT1,
+    >,
+    dst_app: &mut App<
+        BankT2,
+        ApiT2,
+        StorageT2,
+        CustomT2,
+        WasmT2,
+        StakingT2,
+        DistrT2,
+        IbcT2,
+        GovT2,
+        StargateT2,
+    >,
     src_connection_id: String,
     src_port: String,
     dst_port: String,
@@ -137,6 +187,7 @@ where
     DistrT1: Distribution,
     IbcT1: Ibc,
     GovT1: Gov,
+    StargateT1: Stargate,
 
     CustomT2::ExecT: CustomMsg + DeserializeOwned + 'static,
     CustomT2::QueryT: CustomQuery + DeserializeOwned + 'static,
@@ -149,6 +200,7 @@ where
     DistrT2: Distribution,
     IbcT2: Ibc,
     GovT2: Gov,
+    StargateT2: Stargate,
 {
     let ibc_init_msg = IbcPacketRelayingMsg::OpenChannel {
         local_connection_id: src_connection_id.clone(),

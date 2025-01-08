@@ -13,6 +13,8 @@ mod test_payload;
 mod test_prefixed_storage;
 #[cfg(feature = "staking")]
 mod test_staking;
+#[cfg(feature = "tokenfactory")]
+mod test_token_factory;
 mod test_wasm;
 
 mod test_contracts {
