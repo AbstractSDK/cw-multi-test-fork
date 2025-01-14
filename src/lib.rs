@@ -27,6 +27,12 @@ mod transactions;
 mod wasm;
 pub mod wasm_emulation;
 
+#[cfg(feature = "tokenfactory")]
+/// TokenFactory integration for cw-multi-test
+pub mod tokenfactory;
+#[cfg(feature = "tokenfactory")]
+pub(crate) use tokenfactory::shim;
+
 pub use crate::addresses::{AddressGenerator, SimpleAddressGenerator};
 pub use crate::app::{custom_app, next_block, App, BasicApp, CosmosRouter, Router, SudoMsg};
 pub use crate::app_builder::{AppBuilder, BasicAppBuilder};

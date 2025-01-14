@@ -11,6 +11,12 @@ homepage = "https://cosmwasm.com"
 [features]
 default = []
 backtrace = ["anyhow/backtrace"]
+tokenfactory = [
+    "dep:osmosis-std-derive",
+    "dep:chrono",
+    "dep:prost-types",
+    "dep:serde-cw-value",
+]
 
 [dependencies]
 anyhow = "1.0.75"
@@ -21,6 +27,7 @@ cosmwasm-std = { version = "2.1", features = [
     "stargate",
     "cosmwasm_2_0",
 ] }
+cosmwasm-schema = { version = "2.1" }
 cw-storage-plus = "2.0.0"
 cw-utils = "2.0.0"
 derivative = "2.2.0"
@@ -61,6 +68,12 @@ wasmer = { version = "4.3.0", default-features = false, features = [
 # Caching
 cargo_metadata = "0.18" # For finding Cargo target dir
 file-lock = "2.1"
+
+# For tokenfactory
+osmosis-std-derive = { version = "0.26.0", optional = true }
+prost-types = { version = "0.13.4", optional = true }
+serde-cw-value = { version = "0.7.0", optional = true }
+chrono = { version = "0.4.39", optional = true }
 
 [dev-dependencies]
 hex = "0.4.3"
