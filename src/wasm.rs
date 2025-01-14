@@ -181,6 +181,7 @@ pub trait Wasm<ExecC, QueryC>: AllWasmQuerier + ContainsRemote {
 }
 
 pub type LocalRustContract<ExecC, QueryC> = *mut dyn Contract<ExecC, QueryC>;
+/// A structure representing a default wasm keeper.
 pub struct WasmKeeper<ExecC: 'static, QueryC: CustomQuery + 'static> {
     /// Contract codes that stand for wasm code in real-life blockchain.
     pub code_base: RefCell<BTreeMap<u64, WasmContract>>,

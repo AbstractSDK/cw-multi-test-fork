@@ -7,11 +7,10 @@ use crate::tests::default_app;
 use crate::tests::remote_channel;
 use crate::transactions::{transactional, StorageTransaction};
 use crate::wasm::ContractData;
-use crate::wasm_emulation::channel::RemoteChannel;
 use crate::wasm_emulation::query::ContainsRemote;
 use crate::{
     custom_app, next_block, no_init, App, AppResponse, Bank, CosmosRouter, Executor, Module,
-    Router, Wasm, WasmKeeper, WasmSudo,
+    Router, Wasm, WasmSudo,
 };
 use crate::{AppBuilder, IntoAddr};
 use cosmwasm_std::testing::{mock_env, MockQuerier};
@@ -21,7 +20,6 @@ use cosmwasm_std::{
     OverflowError, OverflowOperation, Querier, Reply, StdError, StdResult, Storage, SubMsg,
     WasmMsg,
 };
-use cw_orch::daemon::RUNTIME;
 use cw_storage_plus::Item;
 use cw_utils::parse_instantiate_response_data;
 use schemars::JsonSchema;
@@ -119,12 +117,13 @@ fn multi_level_bank_cache() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = App::new(remote_channel(), |router, _, storage| {
+    let mut app = App::new(|router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     // cache 1 - send some tokens
     let mut cache = StorageTransaction::new(app.storage());
@@ -203,7 +202,7 @@ fn send_tokens() {
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
     let rcpt_funds = vec![coin(5, "btc")];
-    let mut app = App::new(remote_channel(), |router, _, storage| {
+    let mut app = App::new(|router, _, storage| {
         // initialization moved to App construction
         router
             .bank
@@ -213,7 +212,8 @@ fn send_tokens() {
             .bank
             .init_balance(storage, &recipient_addr, rcpt_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     // send both tokens
     let to_send = vec![coin(30, "eth"), coin(5, "btc")];
@@ -250,12 +250,13 @@ fn simple_contract() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app = App::new(remote_channel(), |router, _, storage| {
+    let mut app = App::new(|router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     // set up contract
     let code_id = app.store_code(payout::contract());
@@ -339,15 +340,15 @@ fn reflect_success() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app =
-        custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
-            router
-                .bank
-                .init_balance(storage, &owner_addr, init_funds)
-                .unwrap();
-            router.bank.set_remote(remote_channel());
-            router.wasm.set_remote(remote_channel());
-        });
+    let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
+        router
+            .bank
+            .init_balance(storage, &owner_addr, init_funds)
+            .unwrap();
+        router.bank.set_remote(remote_channel());
+        router.wasm.set_remote(remote_channel());
+    })
+    .with_remote(remote_channel());
 
     // set up payout contract
     let payout_id = app.store_code(payout::contract());
@@ -449,15 +450,15 @@ fn reflect_error() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app =
-        custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
-            router
-                .bank
-                .init_balance(storage, &owner, init_funds)
-                .unwrap();
-            router.bank.set_remote(remote_channel());
-            router.wasm.set_remote(remote_channel());
-        });
+    let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
+        router
+            .bank
+            .init_balance(storage, &owner, init_funds)
+            .unwrap();
+        router.bank.set_remote(remote_channel());
+        router.wasm.set_remote(remote_channel());
+    })
+    .with_remote(remote_channel());
 
     // set up reflect contract
     let reflect_id = app.store_code(reflect::contract());
@@ -549,12 +550,13 @@ fn sudo_works() {
 
     // set personal balance
     let init_funds = vec![coin(100, "eth")];
-    let mut app = App::new(remote_channel(), |router, _, storage| {
+    let mut app = App::new(|router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     let payout_id = app.store_code(payout::contract());
 
@@ -613,15 +615,15 @@ fn reflect_sub_message_reply_works() {
 
     // set personal balance
     let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
-    let mut app =
-        custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
-            router
-                .bank
-                .init_balance(storage, &owner, init_funds)
-                .unwrap();
-            router.bank.set_remote(remote_channel());
-            router.wasm.set_remote(remote_channel());
-        });
+    let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
+        router
+            .bank
+            .init_balance(storage, &owner, init_funds)
+            .unwrap();
+        router.bank.set_remote(remote_channel());
+        router.wasm.set_remote(remote_channel());
+    })
+    .with_remote(remote_channel());
 
     // set up reflect contract
     let reflect_id = app.store_code(reflect::contract());
@@ -779,12 +781,13 @@ fn sent_wasm_migration_works() {
 
     // set personal balance
     let init_funds = coins(30, "btc");
-    let mut app = App::new(remote_channel(), |router, _, storage| {
+    let mut app = App::new(|router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     // create a hackatom contract with some funds
     let code_id = app.store_code(hackatom::contract());
@@ -854,12 +857,13 @@ fn sent_funds_properly_visible_on_execution() {
 
     // set personal balance
     let init_funds = coins(30, "btc");
-    let mut app = App::new(remote_channel(), |router, _, storage| {
+    let mut app = App::new(|router, _, storage| {
         router
             .bank
             .init_balance(storage, &owner_addr, init_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     let code_id = app.store_code(hackatom::contract());
 
@@ -1230,15 +1234,15 @@ mod reply_data_overwrite {
 
         // set personal balance
         let init_funds = coins(100, "tgd");
-        let mut app =
-            custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
-                router
-                    .bank
-                    .init_balance(storage, &owner, init_funds)
-                    .unwrap();
-                router.bank.set_remote(remote_channel());
-                router.wasm.set_remote(remote_channel());
-            });
+        let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
+            router
+                .bank
+                .init_balance(storage, &owner, init_funds)
+                .unwrap();
+            router.bank.set_remote(remote_channel());
+            router.wasm.set_remote(remote_channel());
+        })
+        .with_remote(remote_channel());
 
         // set up reflect contract
         let reflect_id = app.store_code(reflect::contract());
@@ -1710,7 +1714,6 @@ mod custom_messages {
 
 mod protobuf_wrapped_data {
     use super::*;
-    use crate::BasicApp;
 
     #[test]
     fn instantiate_wrapped_properly() {
@@ -1719,15 +1722,15 @@ mod protobuf_wrapped_data {
 
         // set personal balance
         let init_funds = vec![coin(20, "btc")];
-        let mut app =
-            custom_app::<CustomHelperMsg, Empty, _>(remote_channel(), |router, _, storage| {
-                router
-                    .bank
-                    .init_balance(storage, &owner, init_funds)
-                    .unwrap();
-                router.bank.set_remote(remote_channel());
-                router.wasm.set_remote(remote_channel());
-            });
+        let mut app = custom_app::<CustomHelperMsg, Empty, _>(|router, _, storage| {
+            router
+                .bank
+                .init_balance(storage, &owner, init_funds)
+                .unwrap();
+            router.bank.set_remote(remote_channel());
+            router.wasm.set_remote(remote_channel());
+        })
+        .with_remote(remote_channel());
 
         // set up reflect contract
         let code_id = app.store_code(reflect::contract());

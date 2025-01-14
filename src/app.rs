@@ -1,5 +1,6 @@
 use crate::wasm_emulation::channel::RemoteChannel;
 use crate::wasm_emulation::input::QuerierStorage;
+use crate::wasm_emulation::query::ContainsRemote;
 use cosmwasm_std::CustomMsg;
 
 use crate::bank::{Bank, BankKeeper, BankSudo};
@@ -72,6 +73,31 @@ pub struct App<
     pub(crate) remote: RemoteChannel,
 }
 
+impl<Bank, Api, Storage, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate> ContainsRemote
+    for App<Bank, Api, Storage, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>
+{
+    fn with_remote(self, remote: RemoteChannel) -> Self {
+        let Self {
+            router,
+            api,
+            storage,
+            block,
+            ..
+        } = self;
+        Self {
+            router,
+            api,
+            storage,
+            block,
+            remote,
+        }
+    }
+
+    fn set_remote(&mut self, remote: RemoteChannel) {
+        self.remote = remote;
+    }
+}
+
 /// No-op application initialization function.
 pub fn no_init<ApiT, BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>(
     router: &mut Router<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>,
@@ -83,7 +109,7 @@ pub fn no_init<ApiT, BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
 
 impl BasicApp {
     /// Creates new default `App` implementation working with Empty custom messages.
-    pub fn new<F>(remote: RemoteChannel, init_fn: F) -> Self
+    pub fn new<F>(init_fn: F) -> Self
     where
         F: FnOnce(
             &mut Router<
@@ -100,13 +126,13 @@ impl BasicApp {
             &mut dyn Storage,
         ),
     {
-        AppBuilder::new().with_remote(remote).build(init_fn)
+        AppBuilder::new().build(init_fn)
     }
 }
 
 /// Creates new default `App` implementation working with customized exec and query messages.
 /// Outside the `App` implementation to make type elision better.
-pub fn custom_app<ExecC, QueryC, F>(remote: RemoteChannel, init_fn: F) -> BasicApp<ExecC, QueryC>
+pub fn custom_app<ExecC, QueryC, F>(init_fn: F) -> BasicApp<ExecC, QueryC>
 where
     ExecC: CustomMsg + DeserializeOwned + 'static,
     QueryC: Debug + CustomQuery + DeserializeOwned + 'static,
@@ -125,7 +151,7 @@ where
         &mut dyn Storage,
     ),
 {
-    AppBuilder::new_custom().with_remote(remote).build(init_fn)
+    AppBuilder::new_custom().build(init_fn)
 }
 
 impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT> Querier
