@@ -643,10 +643,10 @@ dependencies = [
 
 [[package]]
 name = "clone-cw-multi-test"
-version = "0.6.5"
+version = "0.7.0"
 dependencies = [
  "anyhow",
- "bech32 0.9.1",
+ "bech32 0.11.0",
  "cargo_metadata",
  "cosmrs",
  "cosmwasm-schema 2.2.0",
@@ -657,12 +657,11 @@ dependencies = [
  "cw-utils 2.0.0",
  "cw2 2.0.0",
  "cw20 2.0.0",
- "derivative",
  "env_logger",
  "file-lock",
  "hex",
  "hex-literal",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "moneymarket",
  "num-bigint",
@@ -2633,15 +2632,6 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
 dependencies = [
  "either",
 ]
