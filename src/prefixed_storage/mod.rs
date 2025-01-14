@@ -65,7 +65,7 @@ impl<'a> PrefixedStorage<'a> {
     }
 }
 
-impl<'a> Storage for PrefixedStorage<'a> {
+impl Storage for PrefixedStorage<'_> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         get_with_prefix(self.storage, &self.prefix, key)
     }
@@ -116,7 +116,7 @@ impl<'a> ReadonlyPrefixedStorage<'a> {
     }
 }
 
-impl<'a> Storage for ReadonlyPrefixedStorage<'a> {
+impl Storage for ReadonlyPrefixedStorage<'_> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         get_with_prefix(self.storage, &self.prefix, key)
     }

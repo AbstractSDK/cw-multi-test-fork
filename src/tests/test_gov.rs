@@ -2,7 +2,7 @@
 
 use crate::test_helpers::gov;
 use crate::tests::default_app;
-use crate::{no_init, App, AppBuilder, Executor, GovAcceptingModule};
+use crate::{no_init, AppBuilder, Executor, GovAcceptingModule};
 use cosmwasm_std::Empty;
 #[test]
 fn default_gov() {

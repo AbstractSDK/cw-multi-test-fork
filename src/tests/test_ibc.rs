@@ -2,7 +2,7 @@
 
 use crate::test_helpers::ibc;
 use crate::tests::default_app;
-use crate::{no_init, App, AppBuilder, Executor, IbcAcceptingModule};
+use crate::{no_init, AppBuilder, Executor, IbcAcceptingModule};
 use cosmwasm_std::Empty;
 #[test]
 fn default_ibc() {

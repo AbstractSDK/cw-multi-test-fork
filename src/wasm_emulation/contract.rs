@@ -12,7 +12,7 @@ use cosmwasm_std::{
 };
 use cosmwasm_vm::{
     call_execute, call_instantiate, call_migrate, call_query, call_reply, call_sudo,
-    internals::check_wasm, Backend, BackendApi, Instance, InstanceOptions, Querier,
+    internals::check_wasm, Backend, BackendApi, Instance, InstanceOptions, Querier, WasmLimits,
 };
 use cw_orch::daemon::queriers::CosmWasm;
 
@@ -89,6 +89,8 @@ impl WasmContract {
                 "staking".to_string(),
                 "stargate".to_string(),
             ]),
+            &WasmLimits::default(),
+            cosmwasm_vm::internals::Logger::Off,
         )
         .unwrap();
         Self::Local(LocalWasmContract {
@@ -513,8 +515,10 @@ mod wasm_caching {
                 }
             }
             // Error on checking cache dir, try to create it
-            Err(_) => fs::create_dir(&wasm_cache_dir)
-                .context("Wasm cache directory cannot be created, please check permissions")?,
+            Err(_) => {
+                // We try to create the dir silently, it's ok if it fails, the error will pop-up later if there's an issue
+                let _ = fs::create_dir(&wasm_cache_dir);
+            }
         }
 
         let cached_wasm_file = wasm_cache_dir.join(key);

@@ -47,7 +47,7 @@ tokio = "1.28.2"
 tonic = "0.12.2"
 
 ## Emulation
-cosmwasm-vm = { version = "2.1.3", features = [
+cosmwasm-vm = { version = "=2.2.0", features = [
     "staking",
     "stargate",
     "iterator",

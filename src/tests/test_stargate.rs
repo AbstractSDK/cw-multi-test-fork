@@ -2,7 +2,7 @@
 
 use crate::test_helpers::stargate;
 use crate::tests::default_app;
-use crate::{no_init, App, AppBuilder, Executor, StargateAccepting};
+use crate::{no_init, AppBuilder, Executor, StargateAccepting};
 use cosmwasm_std::Empty;
 #[test]
 fn default_failing_stargate_handler_should_work() {

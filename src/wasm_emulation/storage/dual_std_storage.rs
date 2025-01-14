@@ -54,7 +54,7 @@ struct Iter<'a> {
     local_iter: Peekable<Box<dyn Iterator<Item = Record> + 'a>>,
 }
 
-impl<'i> Iterator for Iter<'i> {
+impl Iterator for Iter<'_> {
     type Item = Record;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -144,7 +144,7 @@ impl<'a> DualStorage<'a> {
         remote: RemoteChannel,
         contract_addr: String,
         local_storage: Box<dyn Storage + 'a>,
-    ) -> AnyResult<DualStorage> {
+    ) -> AnyResult<DualStorage<'a>> {
         Ok(Self {
             local_storage,
             remote,
@@ -154,7 +154,7 @@ impl<'a> DualStorage<'a> {
     }
 }
 
-impl<'a> Storage for DualStorage<'a> {
+impl Storage for DualStorage<'_> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         // First we try to get the value locally
         let mut value = self.local_storage.get(key);
@@ -198,7 +198,7 @@ impl<'a> Storage for DualStorage<'a> {
             start.map(|s| s.to_vec()).unwrap_or_default()
         };
 
-        return Box::new(Iter {
+        Box::new(Iter {
             distant_iter: DistantIter {
                 remote: self.remote.clone(),
                 contract_addr: self.contract_addr.clone(),
@@ -210,6 +210,6 @@ impl<'a> Storage for DualStorage<'a> {
                 reverse: order == Order::Descending,
             },
             local_iter: self.local_storage.range(start, end, order).peekable(),
-        });
+        })
     }
 }

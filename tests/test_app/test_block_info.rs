@@ -1,6 +1,6 @@
 use cosmwasm_std::testing::mock_env;
 use cosmwasm_std::{BlockInfo, Timestamp};
-use cw_multi_test::{next_block, App};
+use cw_multi_test::next_block;
 
 use crate::default_app;
 

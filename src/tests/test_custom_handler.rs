@@ -1,7 +1,7 @@
 use crate::custom_handler::CachingCustomHandler;
 use crate::test_helpers::CustomHelperMsg;
 use crate::tests::default_app;
-use crate::{App, Module};
+use crate::Module;
 use cosmwasm_std::testing::MockStorage;
 use cosmwasm_std::Empty;
 
