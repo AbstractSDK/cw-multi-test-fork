@@ -1,9 +1,6 @@
 use clone_cw_multi_test::{
-    addons::{MockAddressGenerator, MockApiBech32},
-    wasm_emulation::{
-        channel::RemoteChannel, contract::WasmContract, storage::analyzer::StorageAnalyzer,
-    },
-    AppBuilder, BankKeeper, Executor, WasmKeeper,
+    wasm_emulation::{channel::RemoteChannel, storage::analyzer::StorageAnalyzer},
+    AppBuilder, Executor, MockApiBech32,
 };
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{coins, Addr, BlockInfo, ContractInfoResponse, QueryRequest, WasmQuery};
@@ -65,12 +62,6 @@ pub fn test() -> anyhow::Result<()> {
         chain.network_info.pub_address_prefix,
     )?;
 
-    let wasm = WasmKeeper::<Empty, Empty>::new()
-        .with_remote(remote_channel.clone())
-        .with_address_generator(MockAddressGenerator);
-
-    let bank = BankKeeper::new().with_remote(remote_channel.clone());
-
     let block = runtime.block_on(
         Node {
             channel: remote_channel.channel.clone(),
@@ -80,8 +71,6 @@ pub fn test() -> anyhow::Result<()> {
     )?;
     // First we instantiate a new app
     let app = AppBuilder::default()
-        .with_wasm(wasm)
-        .with_bank(bank)
         .with_remote(remote_channel.clone())
         .with_block(BlockInfo {
             height: block.height,
@@ -89,7 +78,7 @@ pub fn test() -> anyhow::Result<()> {
             chain_id: chain.chain_id.to_string(),
         })
         .with_api(MockApiBech32::new(chain.network_info.pub_address_prefix));
-    let mut app = app.build(|_, _, _| {})?;
+    let mut app = app.build(|_, _, _| {});
     // Then we send a message to the blockchain through the app
 
     // We query to verify the state changed
@@ -129,7 +118,7 @@ pub fn test() -> anyhow::Result<()> {
     let code = std::fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("artifacts")
-            .join("counter_contract.wasm"),
+            .join("counter_contract_with_cousin.wasm"),
     )
     .unwrap();
 

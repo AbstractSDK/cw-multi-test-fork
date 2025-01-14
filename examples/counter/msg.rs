@@ -36,13 +36,13 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     /// GetCount returns the current count as a json-encoded number
     #[returns(GetCountResponse)]
-    Count {},
+    GetCount {},
     /// GetCount returns the current count as a json-encoded number
     #[returns(GetCountResponse)]
-    CousinCount {},
+    GetCousinCount {},
     /// GetCount returns the current count as a json-encoded number
     #[returns(GetCountResponse)]
-    RawCousinCount {},
+    GetRawCousinCount {},
 }
 
 // Custom response for the query

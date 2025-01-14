@@ -1,7 +1,8 @@
 use crate::{
+    featured::staking::{Distribution, Staking},
     prefixed_storage::{decode_length, to_length_prefixed, CONTRACT_STORAGE_PREFIX},
     wasm_emulation::channel::RemoteChannel,
-    BankKeeper, Distribution, Gov, Ibc, Module, Staking, WasmKeeper,
+    BankKeeper, Gov, Ibc, Module, Stargate, WasmKeeper,
 };
 use cosmwasm_std::{Addr, Api, Coin, CustomMsg, CustomQuery, Storage};
 use cw_orch::prelude::BankQuerier;
@@ -33,7 +34,7 @@ pub type CustomWasmKeeper<CustomT> =
     WasmKeeper<<CustomT as Module>::ExecT, <CustomT as Module>::QueryT>;
 
 impl StorageAnalyzer {
-    pub fn new<ApiT, StorageT, CustomT, StakingT, DistrT, IbcT, GovT>(
+    pub fn new<ApiT, StorageT, CustomT, StakingT, DistrT, IbcT, GovT, StargateT>(
         app: &App<
             BankKeeper,
             ApiT,
@@ -44,6 +45,7 @@ impl StorageAnalyzer {
             DistrT,
             IbcT,
             GovT,
+            StargateT,
         >,
     ) -> AnyResult<Self>
     where
@@ -57,10 +59,14 @@ impl StorageAnalyzer {
         DistrT: Distribution,
         IbcT: Ibc,
         GovT: Gov,
+        StargateT: Stargate,
     {
         Ok(Self {
             storage: app.get_querier_storage()?,
-            remote: app.remote.clone(),
+            remote: app
+                .remote
+                .clone()
+                .expect("Remote has to be defined to use storage analyzer"),
         })
     }
 

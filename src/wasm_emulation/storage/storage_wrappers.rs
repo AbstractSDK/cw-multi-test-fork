@@ -10,7 +10,7 @@ impl<'a> StorageWrapper<'a> {
     }
 }
 
-impl<'a> Storage for StorageWrapper<'a> {
+impl Storage for StorageWrapper<'_> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         self.storage.get(key)
     }
@@ -45,7 +45,7 @@ impl<'a> ReadonlyStorageWrapper<'a> {
     }
 }
 
-impl<'a> Storage for ReadonlyStorageWrapper<'a> {
+impl Storage for ReadonlyStorageWrapper<'_> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         self.storage.get(key)
     }

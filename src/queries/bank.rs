@@ -11,8 +11,7 @@ impl BankRemoteQuerier {
             channel: remote.channel,
             rt_handle: Some(remote.rt.clone()),
         };
-        let distant_amounts: Vec<Coin> =
-            remote.rt.block_on(querier._balance(account, None)).unwrap();
+        let distant_amounts: Vec<Coin> = remote.rt.block_on(querier._balance(account, None))?;
         Ok(distant_amounts)
     }
 }

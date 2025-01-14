@@ -1,8 +1,8 @@
 use anyhow::{bail, Result as AnyResult};
 use cosmwasm_schema::serde::de::DeserializeOwned;
 use cosmwasm_std::{
-    to_json_binary, Addr, AnyMsg, Api, Binary, BlockInfo, CosmosMsg, CustomMsg, CustomQuery, Empty,
-    GrpcQuery, Querier, Storage,
+    Addr, AnyMsg, Api, Binary, BlockInfo, CosmosMsg, CustomMsg, CustomQuery, GrpcQuery, Querier,
+    Storage,
 };
 use cw_storage_plus::Map;
 use prost::Message;

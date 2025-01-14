@@ -9,7 +9,16 @@ pub mod gas;
 
 use anyhow::Result as AnyResult;
 
-use super::input::{BankStorage, WasmStorage};
+use super::{
+    channel::RemoteChannel,
+    input::{BankStorage, WasmStorage},
+};
+
+pub trait ContainsRemote {
+    fn with_remote(self, remote: RemoteChannel) -> Self;
+
+    fn set_remote(&mut self, remote: RemoteChannel);
+}
 
 pub trait AllWasmQuerier {
     fn query_all(&self, storage: &dyn Storage) -> AnyResult<WasmStorage>;
