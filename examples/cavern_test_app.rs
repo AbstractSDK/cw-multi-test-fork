@@ -5,7 +5,7 @@ use clone_cw_multi_test::{
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{coins, Addr, BlockInfo, ContractInfoResponse, QueryRequest, WasmQuery};
 use cw20::BalanceResponse;
-use cw_orch::daemon::{networks::PHOENIX_1, queriers::Node};
+use cw_orch_daemon::{networks::PHOENIX_1, queriers::Node};
 use std::path::Path;
 use tokio::runtime::Runtime;
 

@@ -10,7 +10,7 @@ use clone_cw_multi_test::{
 };
 use cosmwasm_std::{Addr, Empty};
 use counter::msg::{ExecuteMsg, GetCountResponse, QueryMsg};
-use cw_orch::daemon::networks::PHOENIX_1;
+use cw_orch_daemon::networks::PHOENIX_1;
 use tokio::runtime::Runtime;
 
 mod counter;

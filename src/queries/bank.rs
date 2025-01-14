@@ -7,7 +7,7 @@ pub struct BankRemoteQuerier;
 
 impl BankRemoteQuerier {
     pub fn get_balance(remote: RemoteChannel, account: &Addr) -> AnyResult<Vec<Coin>> {
-        let querier = cw_orch::daemon::queriers::Bank {
+        let querier = cw_orch_daemon::queriers::Bank {
             channel: remote.channel,
             rt_handle: Some(remote.rt.clone()),
         };

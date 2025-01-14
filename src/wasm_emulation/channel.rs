@@ -1,5 +1,5 @@
 use anyhow::Result as AnyResult;
-use cw_orch::daemon::GrpcChannel;
+use cw_orch_daemon::GrpcChannel;
 use tokio::runtime::{Handle, Runtime};
 use tonic::transport::Channel;
 

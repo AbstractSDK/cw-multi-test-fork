@@ -3,7 +3,8 @@
 use clone_cw_multi_test::wasm_emulation::channel::RemoteChannel;
 use clone_cw_multi_test::{no_init, App};
 use cw_multi_test::wasm_emulation::query::ContainsRemote;
-use cw_orch::daemon::RUNTIME;
+use cw_orch_daemon::networks::XION_TESTNET_1;
+use cw_orch_daemon::RUNTIME;
 
 mod test_api;
 mod test_app;
@@ -88,7 +89,7 @@ mod test_contracts {
     }
 }
 
-use cw_orch::{daemon::networks::XION_TESTNET_1, prelude::ChainInfo};
+use cw_orch::prelude::ChainInfo;
 pub const CHAIN: ChainInfo = XION_TESTNET_1;
 pub fn remote_channel() -> RemoteChannel {
     RemoteChannel::new(

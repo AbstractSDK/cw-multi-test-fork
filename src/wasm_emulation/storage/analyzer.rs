@@ -144,7 +144,7 @@ impl StorageAnalyzer {
     }
 
     pub fn compare_all_readable_contract_storage(&self) {
-        let wasm_querier = cw_orch::daemon::queriers::CosmWasm::new_sync(
+        let wasm_querier = cw_orch_daemon::queriers::CosmWasm::new_sync(
             self.remote.channel.clone(),
             &self.remote.rt,
         );
@@ -232,7 +232,7 @@ impl StorageAnalyzer {
     }
 
     pub fn compare_all_balances(&self) {
-        let bank_querier = cw_orch::daemon::queriers::Bank {
+        let bank_querier = cw_orch_daemon::queriers::Bank {
             channel: self.remote.channel.clone(),
             rt_handle: Some(self.remote.rt.clone()),
         };

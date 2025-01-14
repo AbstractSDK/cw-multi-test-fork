@@ -20,7 +20,7 @@ use cosmwasm_std::{
 use cosmwasm_std::{ContractInfo, ContractResult};
 
 use cosmwasm_std::WasmQuery;
-use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch_daemon::queriers::CosmWasm;
 use serde::de::DeserializeOwned;
 
 use crate::wasm_emulation::channel::RemoteChannel;

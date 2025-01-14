@@ -14,7 +14,7 @@ use cosmwasm_vm::{
     call_execute, call_instantiate, call_migrate, call_query, call_reply, call_sudo,
     internals::check_wasm, Backend, BackendApi, Instance, InstanceOptions, Querier, WasmLimits,
 };
-use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch_daemon::queriers::CosmWasm;
 
 use serde::de::DeserializeOwned;
 use wasmer::Engine;

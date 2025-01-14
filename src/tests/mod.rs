@@ -1,10 +1,8 @@
 #![cfg(test)]
 
 use cosmwasm_std::Empty;
-use cw_orch::{
-    daemon::{networks::XION_TESTNET_1, RUNTIME},
-    prelude::ChainInfo,
-};
+use cw_orch::prelude::ChainInfo;
+use cw_orch_daemon::{networks::XION_TESTNET_1, RUNTIME};
 
 use crate::{
     no_init,

@@ -683,6 +683,7 @@ dependencies = [
  "cosmwasm-std 2.2.0",
  "cosmwasm-vm",
  "cw-orch",
+ "cw-orch-daemon",
  "cw-storage-plus 2.0.0",
  "cw-utils 2.0.0",
  "cw2 2.0.0",
@@ -1252,14 +1253,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8970af7113824ab8d82f0a0d12f92b41d85410f3b7651425989ffa55d517708b"
 dependencies = [
  "anyhow",
- "cosmrs",
  "cosmwasm-std 2.2.0",
  "cw-orch-contract-derive",
  "cw-orch-core",
- "cw-orch-daemon",
  "cw-orch-fns-derive",
  "cw-orch-mock",
- "cw-orch-networks",
  "cw-orch-traits",
  "cw-utils 2.0.0",
  "hex",
@@ -1267,7 +1265,6 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror",
- "tokio",
 ]
 
 [[package]]
@@ -1303,9 +1300,9 @@ dependencies = [
 
 [[package]]
 name = "cw-orch-daemon"
-version = "0.28.1"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb318421ff15d3760f21cb851de41b3b6a82cc42bedddebe2abb677507fbc752"
+checksum = "148b57fe55a3f7bc56a42773646ee2a5722084e0c1b9a2f618226b610acfb2fb"
 dependencies = [
  "anyhow",
  "async-recursion",

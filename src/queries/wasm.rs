@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result as AnyResult;
 use cosmwasm_std::{Addr, Binary, CodeInfoResponse, CustomQuery, Order, Storage};
-use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch_daemon::queriers::CosmWasm;
 
 use crate::{
     prefixed_storage::prefixed_read,

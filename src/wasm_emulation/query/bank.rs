@@ -6,7 +6,7 @@ use cosmwasm_vm::GasInfo;
 
 use cw_utils::NativeBalance;
 
-use cw_orch::daemon::queriers::Bank;
+use cw_orch_daemon::queriers::Bank;
 
 use cosmwasm_std::Binary;
 use cosmwasm_std::Coin;

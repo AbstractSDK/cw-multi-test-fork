@@ -15,7 +15,7 @@ use num_bigint::{BigInt, Sign};
 use std::collections::HashMap;
 use std::iter;
 
-use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch_daemon::queriers::CosmWasm;
 
 fn get_key_bigint(mut key1: Vec<u8>, mut key2: Vec<u8>) -> (BigInt, BigInt) {
     if key1.len() >= key2.len() {

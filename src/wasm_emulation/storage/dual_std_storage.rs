@@ -4,7 +4,7 @@ use cosmrs::proto::cosmos::base::query::v1beta1::PageRequest;
 use cosmrs::proto::cosmwasm::wasm::v1::Model;
 use cosmwasm_std::{Addr, Record};
 use cosmwasm_std::{Order, Storage};
-use cw_orch::daemon::queriers::CosmWasm;
+use cw_orch_daemon::queriers::CosmWasm;
 use num_bigint::{BigInt, Sign};
 use std::iter::{self, Peekable};
 

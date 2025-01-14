@@ -7,7 +7,7 @@ use cw20::AllAccountsResponse;
 use cw20::Cw20ExecuteMsg;
 
 use cw20::Cw20QueryMsg;
-use cw_orch::daemon::networks::PHOENIX_1;
+use cw_orch_daemon::networks::PHOENIX_1;
 
 use cosmwasm_std::Empty;
 use tokio::runtime::Runtime;
