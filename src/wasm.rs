@@ -40,8 +40,7 @@ pub const NAMESPACE_WASM: &[u8] = b"wasm";
 ///
 /// [address namespace]: https://github.com/CosmWasm/wasmd/blob/96e2b91144c9a371683555f3c696f882583cc6a2/x/wasm/types/events.go#L59
 const CONTRACT_ATTR: &str = "_contract_address";
-pub const LOCAL_WASM_CODE_OFFSET: usize = 5_000_000;
-pub const LOCAL_RUST_CODE_OFFSET: usize = 10_000_000;
+pub const LOCAL_CODE_OFFSET: usize = 5_000_000;
 
 /// A structure representing a privileged message.
 #[derive(Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -316,7 +315,7 @@ where
     /// Returns an identifier of the stored contract code.
     fn store_wasm_code(&mut self, creator: Addr, code: Vec<u8>) -> u64 {
         let code_id = self
-            .next_wasm_code_id()
+            .next_local_code_id()
             .unwrap_or_else(|| panic!("{}", Error::NoMoreCodeIdAvailable));
         let code = WasmContract::Local(LocalWasmContract {
             module: create_module(&code).unwrap(),
@@ -341,7 +340,7 @@ where
     /// Returns an identifier of the stored contract code.
     fn store_code(&mut self, creator: Addr, code: Box<dyn Contract<ExecC, QueryC>>) -> u64 {
         let code_id = self
-            .next_rust_code_id()
+            .next_local_code_id()
             .unwrap_or_else(|| panic!("{}", Error::NoMoreCodeIdAvailable));
         self.save_code(code_id, creator, code)
     }
@@ -368,7 +367,7 @@ where
     fn duplicate_code(&mut self, code_id: u64) -> AnyResult<u64> {
         let code_data = self.code_data(code_id)?;
         let new_code_id = self
-            .next_rust_code_id()
+            .next_local_code_id()
             .ok_or_else(Error::no_more_code_id_available)?;
         self.code_data.insert(
             new_code_id,
@@ -629,13 +628,8 @@ where
     }
 
     /// Returns the next contract's code identifier.
-    fn next_rust_code_id(&self) -> Option<u64> {
-        Some((self.code_base.borrow().len() + 1 + LOCAL_RUST_CODE_OFFSET) as u64)
-    }
-
-    /// Returns the next contract's code identifier.
-    fn next_wasm_code_id(&self) -> Option<u64> {
-        Some((self.code_base.borrow().len() + 1 + LOCAL_WASM_CODE_OFFSET) as u64)
+    fn next_local_code_id(&self) -> Option<u64> {
+        Some((self.code_data.len() + 1 + LOCAL_CODE_OFFSET) as u64)
     }
 
     /// Executes the contract's `query` entry-point.

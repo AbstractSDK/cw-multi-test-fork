@@ -177,5 +177,5 @@ pub use crate::staking::{
     Distribution, DistributionKeeper, StakeKeeper, Staking, StakingInfo, StakingSudo,
 };
 pub use crate::stargate::{Stargate, StargateAccepting, StargateFailing};
+pub use crate::wasm::LOCAL_CODE_OFFSET;
 pub use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
-pub use crate::wasm::{LOCAL_RUST_CODE_OFFSET, LOCAL_WASM_CODE_OFFSET};
