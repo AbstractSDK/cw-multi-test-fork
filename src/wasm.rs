@@ -954,7 +954,11 @@ where
         msg: SubMsg<ExecC>,
     ) -> AnyResult<AppResponse> {
         let SubMsg {
-            msg, id, reply_on, ..
+            msg,
+            id,
+            reply_on,
+            payload,
+            ..
         } = msg;
 
         // execute in cache
@@ -967,7 +971,7 @@ where
             if matches!(reply_on, ReplyOn::Always | ReplyOn::Success) {
                 let reply = Reply {
                     id,
-                    payload: Default::default(),
+                    payload,
                     gas_used: 0,
                     result: SubMsgResult::Ok(
                         #[allow(deprecated)]
@@ -993,7 +997,7 @@ where
             if matches!(reply_on, ReplyOn::Always | ReplyOn::Error) {
                 let reply = Reply {
                     id,
-                    payload: Default::default(),
+                    payload,
                     gas_used: 0,
                     result: SubMsgResult::Err(format!("{:?}", e)),
                 };
