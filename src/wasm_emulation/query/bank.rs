@@ -1,7 +1,7 @@
 use crate::wasm_emulation::channel::RemoteChannel;
 use crate::wasm_emulation::query::gas::{GAS_COST_ALL_BALANCE_QUERY, GAS_COST_BALANCE_QUERY};
 use crate::wasm_emulation::query::mock_querier::QueryResultWithGas;
-use cosmwasm_std::Addr;
+use cosmwasm_std::{Addr, SupplyResponse};
 use cosmwasm_vm::GasInfo;
 
 use cw_utils::NativeBalance;
@@ -17,6 +17,8 @@ use cosmwasm_std::{AllBalanceResponse, BalanceResponse, BankQuery};
 
 use cosmwasm_std::to_json_binary;
 use cosmwasm_std::{ContractResult, SystemResult};
+
+use super::gas::GAS_COST_SUPPLY_QUERY;
 
 #[derive(Clone)]
 pub struct BankQuerier {
@@ -120,6 +122,19 @@ impl BankQuerier {
                 let bank_res = AllBalanceResponse::new(amount.unwrap());
                 to_json_binary(&bank_res).into()
             }
+            BankQuery::Supply { denom } => {
+                let supply_clone = self.supplies.get(denom).cloned().unwrap_or_default();
+                let querier = Bank {
+                    channel: self.remote.channel.clone(),
+                    rt_handle: Some(self.remote.rt.clone()),
+                };
+                let query_result: Result<Coin, _> =
+                    self.remote.rt.block_on(querier._supply_of(denom));
+                let mut supply = query_result.unwrap_or(Coin::new(Uint128::zero(), denom));
+                supply.amount += supply_clone;
+                let supply_res = SupplyResponse::new(supply);
+                to_json_binary(&supply_res).into()
+            }
             &_ => panic!("Not implemented {:?}", request),
         };
 
@@ -127,6 +142,7 @@ impl BankQuerier {
         let gas_info = match request {
             BankQuery::Balance { .. } => GAS_COST_BALANCE_QUERY,
             BankQuery::AllBalances { .. } => GAS_COST_ALL_BALANCE_QUERY,
+            BankQuery::Supply { .. } => GAS_COST_SUPPLY_QUERY,
             &_ => panic!("Not implemented {:?}", request),
         };
 
