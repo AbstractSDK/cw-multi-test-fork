@@ -1,6 +1,8 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Coin, CustomMsg, CustomQuery, Uint128};
-use cw_multi_test::{custom_app, App, AppBuilder, BasicApp};
+use cw_multi_test::{custom_app, wasm_emulation::query::ContainsRemote, App, AppBuilder, BasicApp};
+
+use crate::{default_app, remote_channel};
 
 const USER: &str = "user";
 const DENOM: &str = "denom";
@@ -41,7 +43,8 @@ fn initializing_balance_without_builder_should_work() {
             .bank
             .init_balance(storage, &api.addr_make(USER), coins())
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
     assert_balance(
         app.wrap()
             .query_all_balances(app.api().addr_make(USER))
@@ -68,7 +71,8 @@ fn initializing_balance_custom_app_should_work() {
             .bank
             .init_balance(storage, &api.addr_make(USER), coins())
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
     assert_balance(
         app.wrap()
             .query_all_balances(app.api().addr_make(USER))
@@ -78,7 +82,7 @@ fn initializing_balance_custom_app_should_work() {
 
 #[test]
 fn initializing_balance_later_should_work() {
-    let mut app = App::default();
+    let mut app = default_app();
     app.init_modules(|router, api, storage| {
         router
             .bank

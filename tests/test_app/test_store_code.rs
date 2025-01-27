@@ -1,10 +1,10 @@
-use crate::test_contracts::counter;
+use crate::{default_app, test_contracts::counter};
 use cw_multi_test::App;
 
 #[test]
 fn storing_code_assigns_consecutive_identifiers() {
     // prepare the application
-    let mut app = App::default();
+    let mut app = default_app();
 
     // storing contract's code assigns consecutive code identifiers
     for i in 1..=10 {
@@ -18,7 +18,7 @@ fn store_code_generates_default_address_for_creator() {
     use cosmwasm_std::testing::MockApi;
 
     // prepare the application
-    let mut app = App::default();
+    let mut app = default_app();
 
     // store contract's code
     let code_id = app.store_code(counter::contract());

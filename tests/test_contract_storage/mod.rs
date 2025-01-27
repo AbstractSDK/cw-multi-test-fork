@@ -1,3 +1,4 @@
+use crate::default_app;
 use crate::test_contracts::counter;
 use crate::test_contracts::counter::{CounterQueryMsg, CounterResponseMsg};
 use cosmwasm_std::{to_json_binary, Empty, WasmMsg};
@@ -10,7 +11,7 @@ fn read_write_contract_storage_should_work() {
     const COUNTER: Item<u64> = Item::new("counter");
 
     // prepare the blockchain
-    let mut app = App::default();
+    let mut app = default_app();
 
     // store the contract code
     let creator_addr = app.api().addr_make("creator");

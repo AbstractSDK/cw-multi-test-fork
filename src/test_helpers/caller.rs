@@ -2,6 +2,7 @@ use crate::{Contract, ContractWrapper};
 use cosmwasm_std::{
     Binary, CustomMsg, Deps, DepsMut, Empty, Env, MessageInfo, Response, StdError, SubMsg, WasmMsg,
 };
+use serde::de::DeserializeOwned;
 
 fn instantiate(
     _deps: DepsMut,
@@ -31,7 +32,7 @@ fn query(_deps: Deps, _env: Env, _msg: Empty) -> Result<Binary, StdError> {
 
 pub fn contract<C>() -> Box<dyn Contract<C>>
 where
-    C: CustomMsg + 'static,
+    C: CustomMsg + DeserializeOwned + 'static,
 {
     let contract = ContractWrapper::new_with_empty(execute, instantiate, query);
     Box::new(contract)

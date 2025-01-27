@@ -8,17 +8,17 @@ use sha2::{Digest, Sha256};
 
 pub struct MockApiBech<T> {
     api: MockApi,
-    prefix: &'static str,
+    prefix: String,
     _phantom_data: std::marker::PhantomData<T>,
 }
 
 impl<T: bech32::Checksum> MockApiBech<T> {
     /// Returns `Api` implementation that uses specified prefix
     /// to generate addresses in `Bech32` or `Bech32m` format.
-    pub fn new(prefix: &'static str) -> Self {
+    pub fn new(prefix: &str) -> Self {
         Self {
             api: MockApi::default(),
-            prefix,
+            prefix: prefix.to_string(),
             _phantom_data: std::marker::PhantomData,
         }
     }
@@ -39,7 +39,7 @@ impl<T: bech32::Checksum> Api for MockApiBech<T> {
     }
 
     fn addr_humanize(&self, canonical: &CanonicalAddr) -> StdResult<Addr> {
-        let hrp = Hrp::parse(self.prefix).map_err(|e| StdError::generic_err(e.to_string()))?;
+        let hrp = Hrp::parse(&self.prefix).map_err(|e| StdError::generic_err(e.to_string()))?;
         if let Ok(encoded) = encode::<T>(hrp, canonical.as_slice()) {
             Ok(Addr::unchecked(encoded))
         } else {
@@ -99,7 +99,7 @@ impl<T: bech32::Checksum> MockApiBech<T> {
     /// This function panics when generating a valid address in `Bech32` or `Bech32m`
     /// format is not possible, especially when the prefix is too long or empty.
     pub fn addr_make(&self, input: &str) -> Addr {
-        match Hrp::parse(self.prefix) {
+        match Hrp::parse(&self.prefix) {
             Ok(hrp) => Addr::unchecked(encode::<T>(hrp, Sha256::digest(input).as_slice()).unwrap()),
             Err(reason) => panic!("Generating address failed with reason: {}", reason),
         }

@@ -6,6 +6,7 @@ use cosmwasm_std::{
     Response, StdError,
 };
 use cw_storage_plus::Item;
+use serde::de::DeserializeOwned;
 
 #[cw_serde]
 pub struct InstantiateMessage {
@@ -74,7 +75,7 @@ fn query(deps: Deps, _env: Env, msg: QueryMsg) -> Result<Binary, StdError> {
 
 pub fn contract<C>() -> Box<dyn Contract<C>>
 where
-    C: CustomMsg + 'static,
+    C: CustomMsg + DeserializeOwned + 'static,
 {
     let contract =
         ContractWrapper::new_with_empty(execute, instantiate, query).with_sudo_empty(sudo);

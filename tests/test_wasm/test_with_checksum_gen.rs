@@ -1,3 +1,4 @@
+use crate::default_app;
 use crate::test_contracts;
 use cosmwasm_std::{Addr, Checksum};
 use cw_multi_test::{no_init, App, AppBuilder, ChecksumGenerator, WasmKeeper};
@@ -5,7 +6,7 @@ use cw_multi_test::{no_init, App, AppBuilder, ChecksumGenerator, WasmKeeper};
 #[test]
 fn default_checksum_generator_should_work() {
     // prepare default application with default wasm keeper
-    let mut app = App::default();
+    let mut app = default_app();
 
     // prepare user addresses
     let creator_addr = app.api().addr_make("creator");

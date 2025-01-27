@@ -1,8 +1,10 @@
 use cosmwasm_std::{coin, Addr};
-use cw_multi_test::{App, IntoAddr};
+use cw_multi_test::{wasm_emulation::query::ContainsRemote, App, IntoAddr};
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
 use std::ops::{Deref, DerefMut};
+
+use crate::{default_app, remote_channel};
 
 const NAMESPACE_BANK: &[u8] = b"bank";
 const BALANCES: Map<&Addr, NativeBalance> = Map::new("balances");
@@ -19,7 +21,8 @@ fn reading_bank_storage_should_work() {
             .bank
             .init_balance(storage, &owner_addr, init_funds)
             .unwrap();
-    });
+    })
+    .with_remote(remote_channel());
 
     // get the read-only prefixed storage for bank
     let storage = app.prefixed_storage(NAMESPACE_BANK);
@@ -32,7 +35,7 @@ fn writing_bank_storage_should_work() {
     // prepare balance owner
     let owner_addr = "owner".into_addr();
 
-    let mut app = App::default();
+    let mut app = default_app();
     // get the mutable prefixed storage for bank
     let mut storage = app.prefixed_storage_mut(NAMESPACE_BANK);
 

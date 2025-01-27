@@ -1,5 +1,7 @@
 use cosmwasm_std::Empty;
-use cw_multi_test::{App, Contract, ContractWrapper, Executor};
+use cw_multi_test::{Contract, ContractWrapper, Executor};
+
+use crate::default_app;
 
 mod test_contract {
     use cosmwasm_std::{Binary, Deps, DepsMut, Empty, Env, Event, MessageInfo, Response, StdError};
@@ -45,7 +47,7 @@ fn contract() -> Box<dyn Contract<Empty>> {
 #[test]
 fn empty_string_attribute_should_work() {
     // prepare the blockchain
-    let mut app = App::default();
+    let mut app = default_app();
 
     // prepare address for creator=owner=sender
     let sender_addr = app.api().addr_make("sender");

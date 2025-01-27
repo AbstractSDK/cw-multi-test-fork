@@ -4,6 +4,8 @@ use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
 use std::ops::{Deref, DerefMut};
 
+use crate::default_app;
+
 const NAMESPACE_CENTRAL_BANK: &[u8] = b"central-bank";
 const NAMESPACE_NATIONAL_BANK: &[u8] = b"national-bank";
 const NAMESPACE_LOCAL_BANK: &[u8] = b"local-bank";
@@ -19,7 +21,7 @@ fn multilevel_storage_should_work() {
     // prepare balance owner
     let owner_addr = "owner".into_addr();
     // create the blockchain
-    let mut app = App::default();
+    let mut app = default_app();
     {
         // get the mutable prefixed, multilevel storage for banks
         let mut storage_mut = app.prefixed_multilevel_storage_mut(NAMESPACES);
