@@ -1,5 +1,132 @@
 # Changelog
 
+## [v2.4.0](https://github.com/CosmWasm/cw-multi-test/tree/v2.4.0) (2025-04-28)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.3.3...v2.4.0)
+
+**Closed issues:**
+
+- Add `QueryRequest::Distribution` to query [\#249](https://github.com/CosmWasm/cw-multi-test/issues/249) (reported by [KevinK](https://github.com/kevzzsk))
+
+**Merged pull requests:**
+
+- Distribution queries [\#251](https://github.com/CosmWasm/cw-multi-test/pull/251) ([DariuszDepta](https://github.com/DariuszDepta))
+- Refactored distribution withdraw address [\#252](https://github.com/CosmWasm/cw-multi-test/pull/252) ([DariuszDepta](https://github.com/DariuszDepta))
+- Tested distribution sudo [\#253](https://github.com/CosmWasm/cw-multi-test/pull/253) ([DariuszDepta](https://github.com/DariuszDepta))
+- Reverted breaking change [\#254](https://github.com/CosmWasm/cw-multi-test/pull/254) ([DariuszDepta](https://github.com/DariuszDepta))
+- Typed prefixed storage [\#255](https://github.com/CosmWasm/cw-multi-test/pull/255) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v2.3.3](https://github.com/CosmWasm/cw-multi-test/tree/v2.3.3) (2025-04-04)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.3.2...v2.3.3)
+
+**Closed issues:**
+
+- Remove `once_cell` dependency [\#246](https://github.com/CosmWasm/cw-multi-test/issues/246)
+
+**Merged pull requests:**
+
+- Removed `once_cell` from dependencies [\#245](https://github.com/CosmWasm/cw-multi-test/pull/245) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v2.3.2](https://github.com/CosmWasm/cw-multi-test/tree/v2.3.2) (2025-03-06)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.3.1...v2.3.2)
+
+**Key highlights:**
+
+- Enabled switching `staking` feature off in Sylvia (see [\#242](https://github.com/CosmWasm/cw-multi-test/issues/242) for details).
+
+**Closed issues:**
+
+- Make staking module public [\#242](https://github.com/CosmWasm/cw-multi-test/issues/242)
+
+**Merged pull requests:**
+
+- Added additional test for governance module [\#235](https://github.com/CosmWasm/cw-multi-test/pull/235) ([DariuszDepta](https://github.com/DariuszDepta))
+- Improved source code documentation [\#236](https://github.com/CosmWasm/cw-multi-test/pull/236) ([DariuszDepta](https://github.com/DariuszDepta))
+- Updated table in documentation [\#237](https://github.com/CosmWasm/cw-multi-test/pull/237) ([DariuszDepta](https://github.com/DariuszDepta))
+- Additional `AppBuilder` tests [\#238](https://github.com/CosmWasm/cw-multi-test/pull/238) ([DariuszDepta](https://github.com/DariuszDepta))
+- Added `bls_*` to `Api` implementors [\#239](https://github.com/CosmWasm/cw-multi-test/pull/239) ([DariuszDepta](https://github.com/DariuszDepta))
+- Additional tests for `AppBuilder::with_api` [\#240](https://github.com/CosmWasm/cw-multi-test/pull/240) ([DariuszDepta](https://github.com/DariuszDepta))
+- Add additional storage tests [\#241](https://github.com/CosmWasm/cw-multi-test/pull/241) ([DariuszDepta](https://github.com/DariuszDepta))
+- Made staking structures public for Sylvia [\#243](https://github.com/CosmWasm/cw-multi-test/pull/243) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v2.3.1](https://github.com/CosmWasm/cw-multi-test/tree/v2.3.1) (2025-01-23)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.3.0...v2.3.1)
+
+**Key highlights:**
+
+- Providing `msg_responses` in **`reply`** entrypoint (see [\#206](https://github.com/CosmWasm/cw-multi-test/issues/206) for details).
+
+**Closed issues:**
+
+- `SubMsgResponse::msg_responses` empty with "cosmwasm_2_0" [\#206](https://github.com/CosmWasm/cw-multi-test/issues/206)
+
+**Merged pull requests:**
+
+- Handling `msg_responses` [\#213](https://github.com/CosmWasm/cw-multi-test/pull/213) ([DariuszDepta](https://github.com/DariuszDepta))
+- Renaming refactoring [\#233](https://github.com/CosmWasm/cw-multi-test/pull/233) ([DariuszDepta](https://github.com/DariuszDepta))
+- Minor refactoring [\#232](https://github.com/CosmWasm/cw-multi-test/pull/232) ([DariuszDepta](https://github.com/DariuszDepta))
+- Minor refactoring [\#232](https://github.com/CosmWasm/cw-multi-test/pull/232) ([DariuszDepta](https://github.com/DariuszDepta))
+- Upgraded dependencies [\#202](https://github.com/CosmWasm/cw-multi-test/pull/202) ([DariuszDepta](https://github.com/DariuszDepta))
+- Upgraded dependencies [\#200](https://github.com/CosmWasm/cw-multi-test/pull/200) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v2.3.0](https://github.com/CosmWasm/cw-multi-test/tree/v2.3.0) (2025-01-19)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.2.1...v2.3.0)
+
+**Key highlights:**
+
+- Dependency upgrade (see [\#229](https://github.com/CosmWasm/cw-multi-test/pull/229) for details).
+
+**Merged pull requests:**
+
+- Upgraded CW dependencies [\#229](https://github.com/CosmWasm/cw-multi-test/pull/229) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v2.2.1](https://github.com/CosmWasm/cw-multi-test/tree/v2.2.1) (2025-01-17)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.2.0...v2.2.1)
+
+**Key highlights:**
+
+- Dependency upgrade (see [\#228](https://github.com/CosmWasm/cw-multi-test/pull/228) for details).
+
+**Merged pull requests:**
+
+- Upgraded non-cw dependencies [\#228](https://github.com/CosmWasm/cw-multi-test/pull/228) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v2.2.0](https://github.com/CosmWasm/cw-multi-test/tree/v2.2.0) (2024-11-07)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.1.1...v2.2.0)
+
+**Key highlights:**
+
+- Added `cosmwasm_2_1` feature that supports CosmWasm 2.1 (see [\#209](https://github.com/CosmWasm/cw-multi-test/issues/209) for details).
+- Fixed handling the payload for submessages (see [\#223](https://github.com/CosmWasm/cw-multi-test/pull/223) for details).
+- Added `checksum` function to `Contract` trait (see [\#207](https://github.com/CosmWasm/cw-multi-test/issues/207) for details). 
+
+**Closed issues:**
+
+- Unifying `instantiate2` implementation [\#207](https://github.com/CosmWasm/cw-multi-test/issues/207)
+- Add `cosmwasm_2_1` feature flag [\#209](https://github.com/CosmWasm/cw-multi-test/issues/209)
+
+**Merged pull requests:**
+
+- Added `cosmwasm_2_1` feature flag [\#210](https://github.com/CosmWasm/cw-multi-test/pull/210) ([DariuszDepta](https://github.com/DariuszDepta))
+- Unifying `instantiate2` implementation [\#212](https://github.com/CosmWasm/cw-multi-test/pull/212) ([DariuszDepta](https://github.com/DariuszDepta))
+- Removed `derivative` crate dependency [\#214](https://github.com/CosmWasm/cw-multi-test/pull/214) ([DariuszDepta](https://github.com/DariuszDepta))
+- Use `cw_serde` where appropriate [\#215](https://github.com/CosmWasm/cw-multi-test/pull/215) ([DariuszDepta](https://github.com/DariuszDepta))
+- Fix `SubMsg` payload not forwarded [\#216](https://github.com/CosmWasm/cw-multi-test/pull/216) ([DariuszDepta](https://github.com/DariuszDepta))
+- Upgraded dependencies [\#217](https://github.com/CosmWasm/cw-multi-test/pull/217) ([DariuszDepta](https://github.com/DariuszDepta))
+- Replaced `todo!` with `unimplemented!` [\#218](https://github.com/CosmWasm/cw-multi-test/pull/218) ([DariuszDepta](https://github.com/DariuszDepta))
+- Refactoring of storage in test helpers [\#219](https://github.com/CosmWasm/cw-multi-test/pull/219) ([DariuszDepta](https://github.com/DariuszDepta))
+- Refactored reflect test helper [\#220](https://github.com/CosmWasm/cw-multi-test/pull/220) ([DariuszDepta](https://github.com/DariuszDepta))
+- Refactoring: echo test helper [\#221](https://github.com/CosmWasm/cw-multi-test/pull/221) ([DariuszDepta](https://github.com/DariuszDepta))
+- Refactoring `test_app` [\#222](https://github.com/CosmWasm/cw-multi-test/pull/222) ([DariuszDepta](https://github.com/DariuszDepta))
+- Fixed payload for submessages [\#223](https://github.com/CosmWasm/cw-multi-test/pull/223) ([DariuszDepta](https://github.com/DariuszDepta))
+- Upgraded dependencies [\#224](https://github.com/CosmWasm/cw-multi-test/pull/224) ([DariuszDepta](https://github.com/DariuszDepta))
+
 ## [v2.1.1](https://github.com/CosmWasm/cw-multi-test/tree/v2.1.1) (2024-08-20)
 
 [Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.1.0...v2.1.1)
@@ -11,6 +138,14 @@
 **Merged pull requests:**
 
 - Fixed documentation metadata [\#204](https://github.com/CosmWasm/cw-multi-test/pull/204) ([DariuszDepta](https://github.com/DariuszDepta))
+
+## [v3.0.0-ibc-alpha.0](https://github.com/CosmWasm/cw-multi-test/tree/v3.0.0-ibc-alpha.0) (2024-07-10)
+
+[Full Changelog](https://github.com/CosmWasm/cw-multi-test/compare/v2.1.0...v3.0.0-ibc-alpha.0)
+
+**Merged pull requests:**
+
+- Add IBC capabilities [\#184](https://github.com/CosmWasm/cw-multi-test/pull/184) ([Kayanski](https://github.com/Kayanski))
 
 ## [v2.1.0](https://github.com/CosmWasm/cw-multi-test/tree/v2.1.0) (2024-07-05)
 

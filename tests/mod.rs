@@ -6,9 +6,12 @@ mod test_app_builder;
 mod test_attributes;
 mod test_bank;
 mod test_contract_storage;
+mod test_distribution;
+mod test_empty_contract;
 mod test_module;
+mod test_payload;
 mod test_prefixed_storage;
-#[cfg(feature = "staking")]
+mod test_responses;
 mod test_staking;
 mod test_wasm;
 
@@ -41,7 +44,7 @@ mod test_contracts {
             _info: MessageInfo,
             _msg: Empty,
         ) -> Result<Response, StdError> {
-            COUNTER.save(deps.storage, &1).unwrap();
+            COUNTER.save(deps.storage, &1)?;
             Ok(Response::default())
         }
 
@@ -51,9 +54,9 @@ mod test_contracts {
             _info: MessageInfo,
             _msg: WasmMsg,
         ) -> Result<Response, StdError> {
-            if let Some(mut counter) = COUNTER.may_load(deps.storage).unwrap() {
+            if let Some(mut counter) = COUNTER.may_load(deps.storage)? {
                 counter += 1;
-                COUNTER.save(deps.storage, &counter).unwrap();
+                COUNTER.save(deps.storage, &counter)?;
             }
             Ok(Response::default())
         }

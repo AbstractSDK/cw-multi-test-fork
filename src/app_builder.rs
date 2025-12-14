@@ -41,7 +41,9 @@ pub type BasicAppBuilder<ExecC, QueryC> = AppBuilder<
     StargateFailing,
 >;
 
-/// Utility to build [App] in stages.
+/// The chain builder.
+///
+/// Utility structure for building a chain in stages.
 /// When particular properties are not explicitly set, then default values are used.
 pub struct AppBuilder<Bank, Api, Storage, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate> {
     api: Api,
@@ -71,6 +73,18 @@ impl Default
         StargateFailing,
     >
 {
+    /// Creates a chain with default settings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cw_multi_test::{no_init, AppBuilder};
+    ///
+    /// let app = AppBuilder::default().build(no_init);
+    ///
+    /// let sender_addr = app.api().addr_make("sender");
+    /// assert!(sender_addr.as_str().starts_with("cosmwasm1"));
+    /// ```
     fn default() -> Self {
         Self::new()
     }
@@ -90,7 +104,18 @@ impl
         StargateFailing,
     >
 {
-    /// Creates builder with default components working with empty exec and query messages.
+    /// Creates a builder with default components working with empty exec and query messages.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cw_multi_test::{no_init, AppBuilder};
+    ///
+    /// let app = AppBuilder::new().build(no_init);
+    ///
+    /// let sender_addr = app.api().addr_make("sender");
+    /// assert!(sender_addr.as_str().starts_with("cosmwasm1"));
+    /// ```
     pub fn new() -> Self {
         AppBuilder {
             api: MockApi::default(),
@@ -454,7 +479,19 @@ where
         }
     }
 
-    /// Overwrites the default gov interface.
+    /// Overwrites the default governance module.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cw_multi_test::{no_init, AppBuilder, GovAcceptingModule};
+    ///
+    /// let app = AppBuilder::default()
+    ///     .with_gov(GovAcceptingModule::new())
+    ///     .build(no_init);
+    ///
+    /// // use the app with accepting governance module in your test
+    /// ```
     pub fn with_gov<NewGov: Gov>(
         self,
         gov: NewGov,

@@ -4,15 +4,22 @@ use crate::checksums::{ChecksumGenerator, SimpleChecksumGenerator};
 use crate::contracts::Contract;
 use crate::error::{bail, AnyContext, AnyError, AnyResult, Error};
 use crate::executor::AppResponse;
-use crate::prefixed_storage::{prefixed, prefixed_read, PrefixedStorage, ReadonlyPrefixedStorage};
+use crate::prefixed_storage::typed_prefixed_storage::{
+    StoragePrefix, TypedPrefixedStorage, TypedPrefixedStorageMut,
+};
+use crate::prefixed_storage::{PrefixedStorage, ReadonlyPrefixedStorage};
 use crate::transactions::transactional;
 use cosmwasm_std::testing::mock_wasmd_attr;
+#[cfg(feature = "stargate")]
+use cosmwasm_std::GovMsg;
 use cosmwasm_std::{
     to_json_binary, Addr, Api, Attribute, BankMsg, Binary, BlockInfo, Checksum, Coin, ContractInfo,
-    ContractInfoResponse, CustomMsg, CustomQuery, Deps, DepsMut, Env, Event, MessageInfo, Order,
-    Querier, QuerierWrapper, Record, Reply, ReplyOn, Response, StdResult, Storage, SubMsg,
-    SubMsgResponse, SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
+    ContractInfoResponse, CosmosMsg, CustomMsg, CustomQuery, Deps, DepsMut, Env, Event,
+    MessageInfo, MsgResponse, Order, Querier, QuerierWrapper, Record, Reply, ReplyOn, Response,
+    StdResult, Storage, SubMsg, SubMsgResponse, SubMsgResult, TransactionInfo, WasmMsg, WasmQuery,
 };
+#[cfg(feature = "staking")]
+use cosmwasm_std::{DistributionMsg, StakingMsg};
 use cw_storage_plus::Map;
 use prost::Message;
 use schemars::JsonSchema;
@@ -24,9 +31,6 @@ use std::fmt::Debug;
 
 /// Contract state kept in storage, separate from the contracts themselves (contract code).
 const CONTRACTS: Map<&Addr, ContractData> = Map::new("contracts");
-
-/// Wasm module namespace.
-const NAMESPACE_WASM: &[u8] = b"wasm";
 
 /// Contract [address namespace].
 ///
@@ -149,8 +153,10 @@ pub trait Wasm<ExecC, QueryC> {
         // We double-namespace this, once from global storage -> wasm_storage
         // then from wasm_storage -> the contracts subspace
         let namespace = self.contract_namespace(address);
-        let storage = ReadonlyPrefixedStorage::multilevel(storage, &[NAMESPACE_WASM, &namespace]);
-        Box::new(storage)
+        let storage: TypedPrefixedStorage<'_, WasmKeeper<ExecC, QueryC>> =
+            WasmStorage::multilevel(storage, &namespace);
+        let prefixed_storage: ReadonlyPrefixedStorage = storage.into();
+        Box::new(prefixed_storage)
     }
 
     /// Returns **read-write** (mutable) contract storage.
@@ -162,8 +168,10 @@ pub trait Wasm<ExecC, QueryC> {
         // We double-namespace this, once from global storage -> wasm_storage
         // then from wasm_storage -> the contracts subspace
         let namespace = self.contract_namespace(address);
-        let storage = PrefixedStorage::multilevel(storage, &[NAMESPACE_WASM, &namespace]);
-        Box::new(storage)
+        let storage: TypedPrefixedStorageMut<'_, WasmKeeper<ExecC, QueryC>> =
+            WasmStorageMut::multilevel(storage, &namespace);
+        let prefixed_storage: PrefixedStorage = storage.into();
+        Box::new(prefixed_storage)
     }
 }
 
@@ -180,6 +188,12 @@ pub struct WasmKeeper<ExecC, QueryC> {
     /// Just markers to make type elision fork when using it as `Wasm` trait
     _p: std::marker::PhantomData<QueryC>,
 }
+
+impl<ExecC, QueryC> StoragePrefix for WasmKeeper<ExecC, QueryC> {
+    const NAMESPACE: &'static [u8] = b"wasm";
+}
+type WasmStorage<'a, ExecC, QueryC> = TypedPrefixedStorage<'a, WasmKeeper<ExecC, QueryC>>;
+type WasmStorageMut<'a, ExecC, QueryC> = TypedPrefixedStorageMut<'a, WasmKeeper<ExecC, QueryC>>;
 
 impl<ExecC, QueryC> Default for WasmKeeper<ExecC, QueryC> {
     /// Returns the default value for [WasmKeeper].
@@ -325,9 +339,9 @@ where
 
     /// Returns `ContractData` for the contract with specified address.
     fn contract_data(&self, storage: &dyn Storage, address: &Addr) -> AnyResult<ContractData> {
-        CONTRACTS
-            .load(&prefixed_read(storage, NAMESPACE_WASM), address)
-            .map_err(Into::into)
+        let storage: TypedPrefixedStorage<'_, WasmKeeper<ExecC, QueryC>> =
+            WasmStorage::new(storage);
+        CONTRACTS.load(&storage, address).map_err(Into::into)
     }
 
     /// Returns a raw state dump of all key-values held by a contract with specified address.
@@ -554,7 +568,7 @@ where
         T: Into<Addr>,
     {
         if !amount.is_empty() {
-            let msg: cosmwasm_std::CosmosMsg<ExecC> = BankMsg::Send {
+            let msg: CosmosMsg<ExecC> = BankMsg::Send {
                 to_address: recipient,
                 amount: amount.to_vec(),
             }
@@ -579,19 +593,19 @@ where
         let admin = new_admin.map(|a| api.addr_validate(&a)).transpose()?;
 
         // check admin status
-        let mut data = self.contract_data(storage, &contract_addr)?;
-        if data.admin != Some(sender) {
-            bail!("Only admin can update the contract admin: {:?}", data.admin);
+        let mut contract_data = self.contract_data(storage, &contract_addr)?;
+        if contract_data.admin != Some(sender) {
+            bail!(
+                "Only admin can update the contract admin: {:?}",
+                contract_data.admin
+            );
         }
         // update admin field
-        data.admin = admin;
-        self.save_contract(storage, &contract_addr, &data)?;
+        contract_data.admin = admin;
+        self.save_contract(storage, &contract_addr, &contract_data)?;
 
-        // no custom event here
-        Ok(AppResponse {
-            data: None,
-            events: vec![],
-        })
+        // No custom events or data here.
+        Ok(AppResponse::default())
     }
 
     // this returns the contract address as well, so we can properly resend the data
@@ -624,7 +638,7 @@ where
 
                 // then call the contract
                 let info = MessageInfo { sender, funds };
-                let res = self.call_execute(
+                let response = self.call_execute(
                     api,
                     storage,
                     contract_addr.clone(),
@@ -637,11 +651,20 @@ where
                 let custom_event =
                     Event::new("execute").add_attribute(CONTRACT_ATTR, &contract_addr);
 
-                let (res, msgs) = self.build_app_response(&contract_addr, custom_event, res);
-                let mut res =
-                    self.process_response(api, router, storage, block, contract_addr, res, msgs)?;
-                res.data = execute_response(res.data);
-                Ok(res)
+                let (sub_response, sub_messages) =
+                    self.build_app_response(&contract_addr, custom_event, response);
+
+                let mut app_response = self.process_response(
+                    api,
+                    router,
+                    storage,
+                    block,
+                    contract_addr,
+                    sub_response,
+                    sub_messages,
+                )?;
+                app_response.data = encode_response_data(app_response.data);
+                Ok(app_response)
             }
             WasmMsg::Instantiate {
                 admin,
@@ -707,7 +730,7 @@ where
                 let (res, msgs) = self.build_app_response(&contract_addr, custom_event, res);
                 let mut res =
                     self.process_response(api, router, storage, block, contract_addr, res, msgs)?;
-                res.data = execute_response(res.data);
+                res.data = encode_response_data(res.data);
                 Ok(res)
             }
             WasmMsg::UpdateAdmin {
@@ -811,27 +834,36 @@ where
         msg: SubMsg<ExecC>,
     ) -> AnyResult<AppResponse> {
         let SubMsg {
-            msg, id, reply_on, ..
+            msg,
+            id,
+            reply_on,
+            payload,
+            ..
         } = msg;
+        // Prepare the message type URL, will be needed when calling `reply` entrypoint.
+        let type_url = Self::response_type_url(&msg);
 
-        // execute in cache
-        let res = transactional(storage, |write_cache, _| {
+        // Execute the submessage in cache
+        let sub_message_result = transactional(storage, |write_cache, _| {
             router.execute(api, write_cache, block, contract.clone(), msg)
         });
 
         // call reply if meaningful
-        if let Ok(mut r) = res {
+        if let Ok(mut r) = sub_message_result {
             if matches!(reply_on, ReplyOn::Always | ReplyOn::Success) {
                 let reply = Reply {
                     id,
-                    payload: Default::default(),
+                    payload,
                     gas_used: 0,
                     result: SubMsgResult::Ok(
                         #[allow(deprecated)]
                         SubMsgResponse {
                             events: r.events.clone(),
-                            data: r.data,
-                            msg_responses: vec![],
+                            data: r.data.clone(),
+                            msg_responses: vec![MsgResponse {
+                                type_url,
+                                value: r.data.unwrap_or_default(),
+                            }],
                         },
                     ),
                 };
@@ -846,11 +878,11 @@ where
                 r.data = None;
             }
             Ok(r)
-        } else if let Err(e) = res {
+        } else if let Err(e) = sub_message_result {
             if matches!(reply_on, ReplyOn::Always | ReplyOn::Error) {
                 let reply = Reply {
                     id,
-                    payload: Default::default(),
+                    payload,
                     gas_used: 0,
                     result: SubMsgResult::Err(format!("{:?}", e)),
                 };
@@ -859,7 +891,7 @@ where
                 Err(e)
             }
         } else {
-            res
+            sub_message_result
         }
     }
 
@@ -886,8 +918,9 @@ where
         self.process_response(api, router, storage, block, contract, res, msgs)
     }
 
-    // this captures all the events and data from the contract call.
-    // it does not handle the messages
+    /// Captures all the events, data and sub messages from the contract call.
+    ///
+    /// This function does not handle the messages.
     fn build_app_response(
         &self,
         contract: &Addr,
@@ -925,11 +958,11 @@ where
         });
         app_events.extend(wasm_events);
 
-        let app = AppResponse {
+        let app_response = AppResponse {
             events: app_events,
             data,
         };
-        (app, messages)
+        (app_response, messages)
     }
 
     fn process_response(
@@ -940,18 +973,33 @@ where
         block: &BlockInfo,
         contract: Addr,
         response: AppResponse,
-        messages: Vec<SubMsg<ExecC>>,
+        sub_messages: Vec<SubMsg<ExecC>>,
     ) -> AnyResult<AppResponse> {
-        let AppResponse { mut events, data } = response;
-
-        // recurse in all messages
-        let data = messages.into_iter().try_fold(data, |data, resend| {
-            let sub_res =
-                self.execute_submsg(api, router, storage, block, contract.clone(), resend)?;
-            events.extend_from_slice(&sub_res.events);
-            Ok::<_, AnyError>(sub_res.data.or(data))
-        })?;
-
+        // Unpack the provided response.
+        let AppResponse {
+            mut events, data, ..
+        } = response;
+        // Recurse in all submessages.
+        let data = sub_messages
+            .into_iter()
+            .try_fold(data, |data, sub_message| {
+                // Execute the submessage.
+                let sub_response = self.execute_submsg(
+                    api,
+                    router,
+                    storage,
+                    block,
+                    contract.clone(),
+                    sub_message,
+                )?;
+                // COLLECT and append all events from the processed submessage.
+                events.extend_from_slice(&sub_response.events);
+                // REPLACE the data with value from the processes submessage (if not empty).
+                Ok::<_, AnyError>(sub_response.data.or(data))
+            })?;
+        // Return the response with updated data, events and message responses taken from
+        // all processed sub messages. Note that events and message responses are collected,
+        // but the data is replaced with the data from the last processes submessage.
         Ok(AppResponse { events, data })
     }
 
@@ -1192,21 +1240,81 @@ where
         address: &Addr,
         contract: &ContractData,
     ) -> AnyResult<()> {
+        let mut storage: TypedPrefixedStorageMut<'_, WasmKeeper<ExecC, QueryC>> =
+            WasmStorageMut::new(storage);
         CONTRACTS
-            .save(&mut prefixed(storage, NAMESPACE_WASM), address, contract)
+            .save(&mut storage, address, contract)
             .map_err(Into::into)
     }
 
     /// Returns the number of all contract instances.
     fn instance_count(&self, storage: &dyn Storage) -> usize {
+        let storage: TypedPrefixedStorage<'_, WasmKeeper<ExecC, QueryC>> =
+            WasmStorage::new(storage);
         CONTRACTS
-            .range_raw(
-                &prefixed_read(storage, NAMESPACE_WASM),
-                None,
-                None,
-                Order::Ascending,
-            )
+            .range_raw(&storage, None, None, Order::Ascending)
             .count()
+    }
+
+    /// Returns the response type for specified message.
+    fn response_type_url(msg: &CosmosMsg<ExecC>) -> String {
+        const UNKNOWN: &str = "/unknown";
+        match &msg {
+            CosmosMsg::Bank(bank_msg) => match bank_msg {
+                BankMsg::Send { .. } => "/cosmos.bank.v1beta1.MsgSendResponse",
+                BankMsg::Burn { .. } => "/cosmos.bank.v1beta1.MsgBurnResponse",
+                _ => UNKNOWN,
+            },
+            CosmosMsg::Custom(..) => UNKNOWN,
+            #[cfg(feature = "staking")]
+            CosmosMsg::Staking(staking_msg) => match staking_msg {
+                StakingMsg::Delegate { .. } => "/cosmos.staking.v1beta1.MsgDelegateResponse",
+                StakingMsg::Undelegate { .. } => "/cosmos.staking.v1beta1.MsgUndelegateResponse",
+                StakingMsg::Redelegate { .. } => {
+                    "/cosmos.staking.v1beta1.MsgBeginRedelegateResponse"
+                }
+                _ => UNKNOWN,
+            },
+            #[cfg(feature = "staking")]
+            CosmosMsg::Distribution(distribution_msg) => match distribution_msg {
+                #[cfg(feature = "cosmwasm_1_3")]
+                DistributionMsg::FundCommunityPool { .. } => {
+                    "/cosmos.distribution.v1beta1.MsgFundCommunityPoolResponse"
+                }
+                DistributionMsg::SetWithdrawAddress { .. } => {
+                    "/cosmos.distribution.v1beta1.MsgSetWithdrawAddressResponse"
+                }
+                DistributionMsg::WithdrawDelegatorReward { .. } => {
+                    "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorRewardResponse"
+                }
+                _ => UNKNOWN,
+            },
+            #[cfg(feature = "stargate")]
+            #[allow(deprecated)]
+            CosmosMsg::Stargate { .. } => UNKNOWN,
+            #[cfg(feature = "cosmwasm_2_0")]
+            CosmosMsg::Any(..) => UNKNOWN,
+            #[cfg(feature = "stargate")]
+            CosmosMsg::Ibc(..) => UNKNOWN,
+            CosmosMsg::Wasm(wasm_msg) => match wasm_msg {
+                WasmMsg::Instantiate { .. } => "/cosmwasm.wasm.v1.MsgInstantiateContractResponse",
+                #[cfg(feature = "cosmwasm_1_2")]
+                WasmMsg::Instantiate2 { .. } => "/cosmwasm.wasm.v1.MsgInstantiateContract2Response",
+                WasmMsg::Execute { .. } => "/cosmwasm.wasm.v1.MsgExecuteContractResponse",
+                WasmMsg::Migrate { .. } => "/cosmwasm.wasm.v1.MsgMigrateContractResponse",
+                WasmMsg::UpdateAdmin { .. } => "/cosmwasm.wasm.v1.MsgUpdateAdminResponse",
+                WasmMsg::ClearAdmin { .. } => "/cosmwasm.wasm.v1.MsgClearAdminResponse",
+                _ => UNKNOWN,
+            },
+            #[cfg(feature = "stargate")]
+            CosmosMsg::Gov(gov_msg) => match gov_msg {
+                GovMsg::Vote { .. } => "/cosmos.gov.v1beta1.MsgVoteResponse",
+                #[cfg(feature = "cosmwasm_1_2")]
+                GovMsg::VoteWeighted { .. } => "/cosmos.gov.v1beta1.MsgVoteWeightedResponse",
+            },
+            _ => UNKNOWN,
+        }
+        .to_string()
     }
 }
 
@@ -1236,14 +1344,13 @@ struct ExecuteResponse {
     pub data: Vec<u8>,
 }
 
-// empty return if no data present in original
-fn execute_response(data: Option<Binary>) -> Option<Binary> {
+/// Encodes the response data.
+fn encode_response_data(data: Option<Binary>) -> Option<Binary> {
     data.map(|d| {
-        let exec_data = ExecuteResponse { data: d.to_vec() };
-        let mut new_data = Vec::<u8>::with_capacity(exec_data.encoded_len());
-        // the data must encode successfully
-        exec_data.encode(&mut new_data).unwrap();
-        new_data.into()
+        let execute_response = ExecuteResponse { data: d.to_vec() };
+        let mut encoded_data = Vec::<u8>::with_capacity(execute_response.encoded_len());
+        execute_response.encode(&mut encoded_data).unwrap();
+        encoded_data.into()
     })
 }
 
